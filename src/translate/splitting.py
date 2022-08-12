@@ -1,18 +1,59 @@
 #! /usr/bin/env python3
 
 
-from typing import List
+from typing import List, Tuple, Iterable
+from itertools import chain
+from functools import reduce
 
 import normalize
 import pddl_parser
+from invariant_finder import find_invariants
+from pddl.tasks import Task
 from pddl.actions import Action
+from pddl.conditions import Condition, Conjunction, Atom
+
+
+Predicate = Tuple[str, Iterable[str]]  # predicate type
 
 
 class Knowledge:
-    """Extracts and provide predicates' knowledge"""
+    """Extracts and provide predicates' knowledge
+    
+    For some predicates, we can partition their arguments to the
+    "counted variable" and the other "parameters". By, this
+    partitioning, we can uniquely determine the value of the
+    "counted variable" argument, when we are given the values for the
+    other "parameters", in each possible state.
 
-    def __init__(self) -> None:
-        pass
+    This class extracts and provides this kind of knowledge.
+    """
+
+    def __init__(self, task: Task) -> None:
+        self.__predicates = dict()  # A dictionary from predicates to the list
+                                    # their <omitted_pos>s (or, the position of
+                                    # their <counted variable>s).
+        self.__extract_knowledge(task)
+
+    def get_relations(self, predicate: Predicate) -> List[Tuple[str, str]]:
+        relations = []
+        print("<Predicate>:", predicate)
+        for counted_variable_position in self.__predicates.get(predicate[0], []):
+            counted_variable = predicate[1][counted_variable_position]
+            for arg in predicate[1]:
+                if arg == counted_variable:
+                    continue
+                relations.append((arg, counted_variable))
+        return relations
+
+    def __extract_knowledge(self, task):
+        normalize.normalize(task)
+        for invariant in find_invariants(task, None):
+            for part in invariant.parts:
+                if part.omitted_pos != -1:
+                    (self
+                     .__predicates
+                     .setdefault(part.predicate, [])
+                     .append(part.omitted_pos))
 
 
 class Graph:
