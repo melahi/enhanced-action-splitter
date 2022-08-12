@@ -57,30 +57,45 @@ class Knowledge:
 
 
 class Graph:
-    """Directed graph representing the influential relation
+    """Directed graph (representing the influential relation)
 
-    Maintains the influential relation among variables. In other words, the
-    graph has an edge (u, v) if and only if the variable u has an influence on
+    Maintains the influential relation among variables. In other words,
+    the graph has an edge (u, v) if and only if the variable u has an
+    influence on
     variable v (or, variable v depends on variable u).
 
-    Additionally, this class produces a topological order of the vertices.
+    Additionally, this class produces a topological order of the
+    vertices.
     """
     Vertex = str  # Vertex type
 
-    def __init__(self) -> None:
-        self.__graph = {}
-    
-    def add_vertex (self, vertex: Vertex) -> 'Graph':
-        self.__graph.setdefault(vertex, [])
-        return self
+    def __init__(self, vertices: List[Vertex] = []) -> None:
+        self.__graph = {vertex: [] for vertex in vertices}
 
-    def add_edge(self, source: Vertex, destination: Vertex) -> 'Graph':
+    def __str__(self) -> str:
+        return str(self.__graph)
+    
+    def add_edge(self, edge: Tuple[Vertex, Vertex]) -> 'Graph':
+        source, destination = edge
         self.__graph.setdefault(source, []).append(destination)
         return self
 
     def topological_order(self) -> List[Vertex]:
-        # TODO: Complete this function
-        return [*self.__graph]
+        def dfs(vertex, visited, order):
+            visited.append(vertex)
+            for destination in self.__graph[vertex]:
+                if destination in visited:
+                    continue
+                visited, order = dfs(destination, visited, order)
+            return visited, [vertex] + order
+        
+        order = []
+        visited = []
+        for vertex in self.__graph:
+            if vertex not in order:
+                visited, order = dfs(vertex, visited, order)
+
+        return order
 
 
 class ActionSplitter:
@@ -90,18 +105,39 @@ class ActionSplitter:
         self.__knowledge = knowledge
 
     def split_action(self, action: Action) -> List[Action]:
-        return []
+        conditions = self.__get_conditions(action.precondition)
+        parameters = map(lambda parameter: parameter.name, action.parameters)
+        influential_order = self.__order_variables(parameters, conditions)
+
+    @staticmethod
+    def __get_conditions(precondition: Condition) -> List[Condition]:
+        if isinstance(precondition, Conjunction):
+            return precondition.parts
+        return [precondition]
+        
+    def __order_variables(self, variables: List[str], conditions) -> List[str]:
+        """Orders the vertices based on their influential relations"""
+
+        # Filter out any condition except positive literals
+        conditions = filter(lambda condition: isinstance(condition, Atom),
+                            conditions)
+        predicates = map (lambda atom: (atom.predicate, atom.args), conditions)
+
+        # Constructing the influential graph
+        graph = Graph(variables)
+        relations = list(chain(*[self.__knowledge.get_relations(predicate)
+                                 for predicate in predicates]))
+        graph = reduce(Graph.add_edge, relations, graph)
+
+        return graph.topological_order()
 
 
 if __name__ == "__main__":
     print("Parsing...")
     task = pddl_parser.open()
-    print("Printing before normalizing:")
-    task.dump()
-    print("Normalizing...")
-    normalize.normalize(task)
-    print("Dumping task:")
-    task.dump()
-    print("Finding invariants...")
-    print("NOTE: not passing in reachable_action_params.")
-    print("This means fewer invariants might be found.")
+    print("Extract knowledge...")
+    knowledge = Knowledge(task)
+    splitter = ActionSplitter(knowledge)
+    print("Splitting actions ...")
+    for action in task.actions:
+        splitter.split_action(action)
