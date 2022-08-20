@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from invariant_finder import find_invariants
 from normalize import normalize
 from pddl.tasks import Task
-from pddl.actions import Action
 
 
 @dataclass
@@ -23,8 +22,8 @@ class ArrayFinder:
         self.__find_dynamic_arrays(task)
         self.__find_static_arrays(task)
 
-
-        print("Arrays:")
+    def dump(self):
+        print("All possible arrays:")
         for array in self.__arrays:
             print(array)
 
@@ -92,4 +91,5 @@ if __name__ == "__main__":
     print("Parsing...")
     task = pddl_parser.open()
     print("Extract knowledge...")
-    ArrayFinder(task)
+    arrays = ArrayFinder(task)
+    arrays.dump()
