@@ -288,7 +288,7 @@ class Graph:
                     continue
                 visited, order = dfs(destination, visited, order)
             return visited, [vertex] + order
-        
+
         order = []
         visited = []
         for vertex in self.__graph:
@@ -308,7 +308,7 @@ class ActionSplitter:
         conditions = self.__get_conditions(action.precondition)
         parameters = [parameter.name for parameter in action.parameters]
         influential_order = self.__order_variables(parameters, conditions)
-        print("Influential order:", influential_order)
+        conditions = self.__order_conditions(conditions, influential_order)
         transitions = self.__get_transitions(action.effects)
         micro_action = MicroAction(action.name)
         for transition in transitions:
@@ -379,6 +379,29 @@ class ActionSplitter:
         graph = reduce(Graph.add_edge, relations, graph)
 
         return graph.topological_order()
+
+    @staticmethod
+    def __order_conditions(conditions: List[Literal], ordered_variables):
+        appearance_rank = {variable: float('inf')
+                           for variable in ordered_variables}
+        influential_rank = {variable: i
+                            for i, variable in enumerate(ordered_variables)}
+        def get_ranking(condition):
+            ranking = [(appearance_rank[arg], influential_rank[arg])
+                       for arg in condition.args if arg.startswith("?")]
+            ranking.sort()
+            return ranking
+        size = len(conditions)
+        for i in range(size):
+            best_ranking = get_ranking(conditions[i])
+            for j in range(i + 1, size):
+                ranking = get_ranking(conditions[j])
+                if ranking < best_ranking:
+                    best_ranking = ranking
+                    conditions[i], conditions[j] = conditions[j], conditions[i]
+            appearance_rank.update({arg: min(i, appearance_rank[arg])
+                                    for arg in conditions[i].args})
+        return conditions
 
 
 if __name__ == "__main__":
