@@ -1,12 +1,13 @@
 #! /usr/bin/env python3
 
 
-from typing import List, Dict, Set, Tuple, Iterable
-from itertools import chain
+from typing import List, Dict, Set, Tuple, Iterable, Generic, TypeVar
+from itertools import chain, permutations
 from functools import reduce
 
 import normalize
 import pddl_parser
+from sccs import get_sccs_adjacency_dict
 from invariant_finder import find_invariants
 from invariants import Invariant
 import pddl
@@ -23,9 +24,23 @@ class AtomicActionPart:
     def find_args(self):
         raise NotImplementedError
 
+    def is_threatened_by(self, transition: 'Transition') -> bool:
+        raise NotImplementedError
+
     @staticmethod
     def _find_args_in_literal(literal: Literal):
-        return {arg for arg in literal.args if arg[0] == "?"}
+        return {arg for arg in literal.args if arg.startswith("?")}
+
+    @staticmethod
+    def _are_possibly_the_same(literal1: Literal, literal2: Literal) -> bool:
+        if literal1.predicate != literal2.predicate:
+            return False
+        for arg1, arg2 in zip(literal1.args, literal2.args):
+            if arg1.startswith("?") or arg2.startswith("?"):
+                continue
+            if arg1 != arg2:
+                return False
+        return True
 
 
 class Condition(AtomicActionPart):
@@ -39,6 +54,12 @@ class Condition(AtomicActionPart):
         if isinstance(self.__condition, Literal):
             return self._find_args_in_literal(self.__condition)
         raise NotImplementedError("Other Conditions are not supported!")
+
+    def is_threatened_by(self, transition: 'Transition') -> bool:
+        for effect in transition.effects:
+            if self._are_possibly_the_same(self.__condition, effect):
+                return True
+        return False
 
     def dump(self, indent: str):
         print(f"{indent}{str(self.__condition)}")
@@ -67,14 +88,14 @@ class Transition(AtomicActionPart):
         """
         common_variables_ids = self.__variables_ids.intersection(variables_ids)
         if not common_variables_ids:
-            # <del_effect> is not related to this transition
+            # `del_effect` is not related to this transition
             return set()
 
         statements = set().union(*self.__conditions,
                                  {self.__main_effect.negate()},
                                  {del_effect.negate()})
-        # TODO: We are supposed to check if <condition> is a logical
-        #       consequence of <statement> or not. In the following,
+        # TODO: We are supposed to check if `condition` is a logical
+        #       consequence of `statement` or not. In the following,
         #       for simplicity, I have not used some other knowledge in
         #       action's precondition, the problem itself, or even the
         #       possible unification, so it might be not precise. I
@@ -98,23 +119,66 @@ class Transition(AtomicActionPart):
                             for effect in self.__effects])
         return args
 
+    @property
+    def effects(self):
+        return self.__effects.copy()
+
+    def is_threatened_by(self, transition: 'Transition') -> bool:
+        for effect in transition.effects:
+            for condition in self.__conditions:
+                if self._are_possibly_the_same(effect, condition):
+                    return True
+            # Delete effect should not be after the add effect.
+            # It somehow might be confusing because the interpretation
+            # is like our negative effect is threatened by another
+            # positive effect, so the positive effect should be placed
+            # after the negative one.
+            if not effect.negated:
+                for effect2 in self.__effects:
+                    if effect2.negated:
+                        if self._are_possibly_the_same(effect, effect2):
+                            return True
+        return False
+
 
 class MicroAction:
     def __init__(self, main_action_name):
         self.__main_name = main_action_name
         self.__preconditions: List[Condition] = []
         self.__transitions: List[Transition] = []
+        self.__args = set()
+
+    @property
+    def args(self):
+        return self.__args.copy()
+
+    @property
+    def preconditions(self):
+        return self.__preconditions.copy()  # deep copy?
+
+    @property
+    def transitions(self):
+        return self.__transitions.copy() # deep copy?
 
     def add_precondition(self, condition: Condition):
         self.__preconditions.append(condition)
+        self.__args.update(condition.find_args())
         return self
 
     def add_transition(self, transition: Transition):
         self.__transitions.append(transition)
+        self.__args.update(transition.find_args())
         return self
 
+    def is_threatened_by(self, other: 'MicroAction') -> bool:
+        parts = self.__preconditions + self.__transitions
+        return any(part.is_threatened_by(other_transition)
+                   for other_transition in other.__transitions 
+                   for part in parts)
+
     def dump(self, name_postfix: str, indent: str):
-        print(f"{indent}Micro-Action: {self.__main_name}{name_postfix}")
+        print(f"{indent}Micro-Action: {self.__main_name}{name_postfix}"
+              f"({', '.join(self.__args)})")
         indent += "\t"
         print(f"{indent}Conditions:")
         for condition in self.__preconditions:
@@ -141,9 +205,9 @@ class Knowledge:
 
     def __init__(self, task: Task):
         self.__omitted_positions = dict()  # A dictionary from predicates to
-                                           # the list of their <omitted_pos>s
+                                           # the list of their `omitted_pos`s
                                            # (or, the positions of their
-                                           # <counted variable>s).
+                                           # `counted variable`s).
         self.__variables = dict()  # predicate -> Set[variable-id],
                                    # it shows each predicate participate
                                    # in which state variables.
@@ -191,7 +255,7 @@ class Knowledge:
             Dict[Invariant, int]: Maps Invariants to their sizes
         """
 
-        # NOTE: The following code is similar to the <useful_groups()>
+        # NOTE: The following code is similar to the `useful_groups()`
         #       function, but with slight modifications, to keep the
         #       invariants lifted, and also returns the number of
         #       possible groups(grounded versions) of each invariants.
@@ -256,7 +320,8 @@ class Knowledge:
         return state_variables
 
 
-class Graph:
+Vertex = TypeVar('Vertex')
+class Graph(Generic[Vertex]):
     """Directed graph (representing the influential relation)
 
     Maintains the influential relation among variables. In other words,
@@ -267,26 +332,31 @@ class Graph:
     Additionally, this class produces a topological order of the
     vertices.
     """
-    Vertex = str  # Vertex type
-
     def __init__(self, vertices: List[Vertex] = []):
         self.__graph = {vertex: [] for vertex in vertices}
 
     def __str__(self) -> str:
         return str(self.__graph)
-    
-    def add_edge(self, edge: Tuple[Vertex, Vertex]) -> 'Graph':
+
+    @property
+    def vertices(self):
+        return [*self.__graph]
+
+    def add_edge(self, edge: Tuple[Vertex, Vertex]):
         source, destination = edge
         self.__graph.setdefault(source, []).append(destination)
         return self
 
-    def topological_order(self) -> List[Vertex]:
+    def topological_order(self, vertex_priority=None) -> List[Vertex]:
         def dfs(vertex, visited, order):
             visited.append(vertex)
-            for destination in self.__graph[vertex]:
-                if destination in visited:
+            neighbors = self.__graph[vertex]
+            if vertex_priority:
+                neighbors.sort(key=vertex_priority)
+            for neighbor in neighbors:
+                if neighbor in visited:
                     continue
-                visited, order = dfs(destination, visited, order)
+                visited, order = dfs(neighbor, visited, order)
             return visited, [vertex] + order
 
         order = []
@@ -309,10 +379,22 @@ class ActionSplitter:
         parameters = [parameter.name for parameter in action.parameters]
         influential_order = self.__order_variables(parameters, conditions)
         conditions = self.__order_conditions(conditions, influential_order)
+        conditions = [Condition(condition) for condition in conditions]
+        conditions = [MicroAction(action.name).add_precondition(condition)
+                      for condition in conditions]
         transitions = self.__get_transitions(action.effects)
-        micro_action = MicroAction(action.name)
-        for transition in transitions:
-            micro_action.add_transition(transition)
+        transitions = [reduce(lambda micro_action, transition:
+                                micro_action.add_transition(transition),
+                              cyclic_transitions,
+                              MicroAction(action.name))
+                       for cyclic_transitions in (self
+                                                  .__find_cyclic_transitions
+                                                  (transitions))]
+
+        micro_actions = self.__order_micro_actions(conditions, transitions)
+        print("Ordered micro actions:")
+        for i, micro_action in enumerate(micro_actions):
+            micro_action.dump(str(i), "")
 
     @staticmethod
     def __get_conditions(condition):
@@ -402,6 +484,64 @@ class ActionSplitter:
             appearance_rank.update({arg: min(i, appearance_rank[arg])
                                     for arg in conditions[i].args})
         return conditions
+
+
+    @staticmethod
+    def __find_cyclic_transitions(transitions: List[Transition]):
+        """Partitions the input into sets of cyclic transitions
+
+        It is possible that a transition affect other transition's
+        condition. This relation might even be cyclic. For example,
+        one transition might affect the condition of another one, and
+        the that one might affect the first one's condition.
+
+        Returns:
+            List[List[Transitions]]: Each element is a cyclic transitions list
+        """
+
+        # Constructing the ordered graph
+        threats = {transition: [] for transition in transitions}
+        for transition1, transition2 in permutations(transitions, 2):
+            if transition1.is_threatened_by(transition2):
+                threats[transition1].append(transition2)
+
+        return get_sccs_adjacency_dict(threats)
+
+    @staticmethod
+    def __order_micro_actions(preconditions: List[MicroAction],
+                              transitions: List[MicroAction]):
+        graph = Graph(preconditions + transitions)
+        # Adding preconditions' order
+        graph = reduce(Graph.add_edge,
+                       zip(preconditions, preconditions[1:]),
+                       graph)
+        
+        # Postponing the modification of state variables until the point
+        # we need their old values.
+        graph = reduce(Graph.add_edge,
+                       ((source, destination)
+                        for source in graph.vertices
+                        for destination in transitions
+                        if source.is_threatened_by(destination)),
+                       graph)
+        last_variable_appearance = {}
+        for index, precondition in enumerate(preconditions):
+            for arg in precondition.args:
+                last_variable_appearance[arg] = index
+
+        # Performing the transitions after all their arguments have been fixed.
+        for transition in transitions:
+            last_index = -1
+            for arg in transition.args:
+                index = last_variable_appearance.get(arg, -1)
+                last_index = max(last_index, index)
+            if last_index != -1:
+                graph.add_edge((preconditions[last_index], transition))
+
+        def priority(micro_action: MicroAction) -> List[int]:
+            return (  [2] * len(micro_action.transitions)
+                    + [1] * len(micro_action.preconditions))
+        return graph.topological_order(vertex_priority=priority)
 
 
 if __name__ == "__main__":
