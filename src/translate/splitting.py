@@ -176,6 +176,14 @@ class MicroAction:
                    for other_transition in other.__transitions 
                    for part in parts)
 
+    def merge(self, other: 'MicroAction') -> 'MicroAction':
+        assert self.__main_name == other.__main_name,\
+            "Micro actions of the same main action can be merged!"
+        self.__preconditions.extend(other.__preconditions)
+        self.__transitions.extend(other.__transitions)
+        self.__args.update(other.__args)
+        return self
+
     def dump(self, name_postfix: str, indent: str):
         print(f"{indent}Micro-Action: {self.__main_name}{name_postfix}"
               f"({', '.join(self.__args)})")
@@ -392,6 +400,7 @@ class ActionSplitter:
                                                   (transitions))]
 
         micro_actions = self.__order_micro_actions(conditions, transitions)
+        micro_actions = self.__merge_micro_actions(0, micro_actions)
         print("Ordered micro actions:")
         for i, micro_action in enumerate(micro_actions):
             micro_action.dump(str(i), "")
@@ -542,6 +551,27 @@ class ActionSplitter:
             return (  [2] * len(micro_action.transitions)
                     + [1] * len(micro_action.preconditions))
         return graph.topological_order(vertex_priority=priority)
+
+    @staticmethod
+    def __merge_micro_actions(max_arguments:int,
+                              micro_actions: List[MicroAction]):
+        # TODO: We might be able to optimize this method to improve its result
+
+        def should_be_merged(action1: MicroAction, action2: MicroAction):
+            if len(action1.args) < len(action2.args):
+                return should_be_merged(action2, action1)
+            if action2.args and not action1.args.intersection(action2.args):
+                return False
+            return (action1.args.issuperset(action2.args)
+                    or len(action1.args.union(action2.args)) <= max_arguments)
+
+        processed = [micro_actions[0]]
+        for micro_action in micro_actions[1:]:
+            while processed and should_be_merged(processed[-1], micro_action):
+                micro_action.merge(processed[-1])
+                del processed[-1]
+            processed.append(micro_action)
+        return processed
 
 
 if __name__ == "__main__":
