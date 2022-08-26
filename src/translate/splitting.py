@@ -533,16 +533,17 @@ class ActionSplitter:
                         for destination in transitions
                         if source.is_threatened_by(destination)),
                        graph)
-        last_variable_appearance = {}
-        for index, precondition in enumerate(preconditions):
-            for arg in precondition.args:
-                last_variable_appearance[arg] = index
 
         # Performing the transitions after all their arguments have been fixed.
+        first_variable_appearance = {}
+        for index, precondition in enumerate(preconditions):
+            for arg in precondition.args:
+                if arg not in first_variable_appearance:
+                    first_variable_appearance[arg] = index
         for transition in transitions:
             last_index = -1
             for arg in transition.args:
-                index = last_variable_appearance.get(arg, -1)
+                index = first_variable_appearance.get(arg, -1)
                 last_index = max(last_index, index)
             if last_index != -1:
                 graph.add_edge((preconditions[last_index], transition))
