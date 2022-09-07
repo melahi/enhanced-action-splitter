@@ -12,7 +12,7 @@ from invariant_finder import find_invariants
 from invariants import Invariant
 import pddl
 from pddl.tasks import Task
-from pddl.actions import Action
+from pddl.pddl_types import TypedObject
 from pddl.effects import ConditionalEffect, Effect, SimpleEffect
 from pddl.conditions import Conjunction, Literal, Atom, NegatedAtom, Truth
 
@@ -21,10 +21,16 @@ Predicate = Tuple[str, Iterable[str]]  # predicate type
 
 
 class AtomicActionPart:
+    def __str__(self):
+        return self.to_string(indent="")
+
     def find_args(self):
         raise NotImplementedError
 
     def is_threatened_by(self, transition: 'Transition') -> bool:
+        raise NotImplementedError
+
+    def to_string(self, indent) -> str:
         raise NotImplementedError
 
     @staticmethod
@@ -42,13 +48,17 @@ class AtomicActionPart:
                 return False
         return True
 
+    @staticmethod
+    def _literal_to_string(literal: Literal) -> str:
+        predicate = f"({' '.join([literal.predicate, *literal.args])})"
+        if literal.negated:
+            return f"(not {predicate})"
+        return predicate
+
 
 class Condition(AtomicActionPart):
     def __init__(self, condition: Literal):
         self.__condition = condition
-
-    def __str__(self):
-        return str(self.__condition)
 
     def find_args(self):
         if isinstance(self.__condition, Literal):
@@ -61,8 +71,8 @@ class Condition(AtomicActionPart):
                 return True
         return False
 
-    def dump(self, indent: str):
-        print(f"{indent}{str(self.__condition)}")
+    def to_string(self, indent) -> str:
+        return indent + self._literal_to_string(self.__condition) + "\n"
 
 
 class Transition(AtomicActionPart):
@@ -106,12 +116,6 @@ class Transition(AtomicActionPart):
 
         return set()
 
-    def dump(self, indent: str):
-        conditions = [str(condition) for condition in self.__conditions]
-        print(f"{indent}{' and '.join(conditions)}:")
-        for effect in self.__effects:
-            print(f"{indent}\t{str(effect)}")
-
     def find_args(self):
         args = set().union(*[self._find_args_in_literal(condition)
                              for condition in self.__conditions])
@@ -140,10 +144,33 @@ class Transition(AtomicActionPart):
                             return True
         return False
 
+    def to_string(self, indent) -> str:
+        output = ""
+        if not self.__conditions:
+            for effect in self.__effects:
+                output += f"{indent}{self._literal_to_string(effect)}\n"
+            return output
+
+        def literals_to_string(indent, literals):
+            if not literals:
+                return indent + "(and)\n"
+            if len(literals) == 1:
+                return indent + self._literal_to_string(literals[0]) + "\n"
+            output  = indent + "(and "
+            output += f"\n{indent}     ".join([self._literal_to_string(literal)
+                                               for literal in literals])
+            output += f"\n{indent})\n"
+            return output
+
+        output  = indent + "(when\n"
+        output += literals_to_string(indent + "      ", self.__conditions)
+        output += literals_to_string(indent + "      ", self.__effects)
+        output += indent + ")\n"
+        return output
+
 
 class MicroAction:
-    def __init__(self, main_action_name):
-        self.__main_name = main_action_name
+    def __init__(self):
         self.__preconditions: List[Condition] = []
         self.__transitions: List[Transition] = []
         self.__args = set()
@@ -159,6 +186,10 @@ class MicroAction:
     @property
     def transitions(self):
         return self.__transitions.copy() # deep copy?
+
+    @property
+    def effects(self):
+        return [e for t in self.__transitions for e in t.effects]
 
     def add_precondition(self, condition: Condition):
         self.__preconditions.append(condition)
@@ -177,23 +208,28 @@ class MicroAction:
                    for part in parts)
 
     def merge(self, other: 'MicroAction') -> 'MicroAction':
-        assert self.__main_name == other.__main_name,\
-            "Micro actions of the same main action can be merged!"
         self.__preconditions.extend(other.__preconditions)
         self.__transitions.extend(other.__transitions)
         self.__args.update(other.__args)
         return self
 
-    def dump(self, name_postfix: str, indent: str):
-        print(f"{indent}Micro-Action: {self.__main_name}{name_postfix}"
-              f"({', '.join(self.__args)})")
-        indent += "\t"
-        print(f"{indent}Conditions:")
-        for condition in self.__preconditions:
-            condition.dump(indent + "\t")
-        print(f"{indent}Transitions:")
+    def to_string(self, action_name, args_types, indent) -> str:
+        args = ' '.join([f"{arg} - {args_types[arg]}" for arg in self.__args])
+        preconditions = f"{indent}\t\t(and\n"
+        for precondition in self.__preconditions:
+            preconditions += precondition.to_string(indent + "\t\t\t")
+        preconditions += f"{indent}\t\t)\n"
+        effects = f"{indent}\t\t(and\n"
         for transition in self.__transitions:
-            transition.dump(indent + "\t")
+            effects += transition.to_string(indent + "\t\t\t")
+        effects += f"{indent}\t\t)\n"
+
+        output  = f"{indent}(:action {action_name}\n"
+        output += f"{indent} :parameters ({args})\n"
+        output += f"{indent} :precondition\n{preconditions}"
+        output += f"{indent} :effects\n{effects}"
+        output += f"{indent})"
+        return output
 
 
 class Knowledge:
@@ -376,39 +412,68 @@ class Graph(Generic[Vertex]):
         return order
 
 
-class ActionSplitter:
-    """Decomposes each action into a series of micro-actions"""
+class Action:
+    """Represents an `Action` by a chain of micro-actions
 
-    def __init__(self, knowledge: Knowledge):
+    Decomposes an action into a series of micro-actions, then
+    Order them in a way to help the searching process."""
+
+    START_PROCEDURE = "START_PROCEDURE"
+    STEP_TYPE = "steps"
+
+    def __init__(self,
+                 knowledge: Knowledge,
+                 action: pddl.Action,
+                 default_values: Dict[str, str]):  # type to default value
         self.__knowledge = knowledge
+        self.__new_objects = []
+        self.__new_predicates = []
+        self.__name = action.name
+        self.__args = {p.name: p.type_name for p in action.parameters}
+        self.__micro_actions = self.__split_action(action)
+        self.__chain_micro_actions(default_values)
 
-    def split_action(self, action: Action) -> List[MicroAction]:
+    @property
+    def new_objects(self):
+        return self.__new_objects.copy()
+
+    @property
+    def new_predicates(self):
+        return self.__new_predicates.copy()
+
+    @property
+    def name(self):
+        return self.__name
+
+    def to_string(self, indent: str) -> str:
+        return "\n".join(m.to_string(f"{self.__name}_{i}", self.__args, indent)
+                         for i, m in enumerate(self.__micro_actions))
+
+    def __split_action(self, action: pddl.Action) -> List[MicroAction]:
         conditions = self.__get_conditions(action.precondition)
         parameters = [parameter.name for parameter in action.parameters]
         influential_order = self.__order_variables(parameters, conditions)
         conditions = self.__order_conditions(conditions, influential_order)
         conditions = [Condition(condition) for condition in conditions]
-        conditions = [MicroAction(action.name).add_precondition(condition)
+        conditions = [MicroAction().add_precondition(condition)
                       for condition in conditions]
         transitions = self.__get_transitions(action.effects)
         transitions = [reduce(lambda micro_action, transition:
                                 micro_action.add_transition(transition),
                               cyclic_transitions,
-                              MicroAction(action.name))
+                              MicroAction())
                        for cyclic_transitions in (self
                                                   .__find_cyclic_transitions
                                                   (transitions))]
 
         micro_actions = self.__order_micro_actions(conditions, transitions)
-        micro_actions = self.__merge_micro_actions(0, micro_actions)
-        print("Ordered micro actions:")
-        for i, micro_action in enumerate(micro_actions):
-            micro_action.dump(str(i), "")
+        micro_actions = self.__merge_micro_actions(2, micro_actions)
+        return micro_actions
 
     @staticmethod
     def __get_conditions(condition):
         if isinstance(condition, Conjunction):
-            return list(chain(*[ActionSplitter.__get_conditions(part)
+            return list(chain(*[Action.__get_conditions(part)
                                 for part in condition.parts]))
         if isinstance(condition, Literal):
             return [condition]
@@ -491,7 +556,8 @@ class ActionSplitter:
                     best_ranking = ranking
                     conditions[i], conditions[j] = conditions[j], conditions[i]
             appearance_rank.update({arg: min(i, appearance_rank[arg])
-                                    for arg in conditions[i].args})
+                                    for arg in conditions[i].args
+                                    if arg.startswith("?")})
         return conditions
 
 
@@ -541,10 +607,11 @@ class ActionSplitter:
                 if arg not in first_variable_appearance:
                     first_variable_appearance[arg] = index
         for transition in transitions:
-            last_index = -1
-            for arg in transition.args:
-                index = first_variable_appearance.get(arg, -1)
-                last_index = max(last_index, index)
+            last_index = len(preconditions) - 1
+            # last_index = -1
+            # for arg in transition.args:
+            #     index = first_variable_appearance.get(arg, -1)
+            #     last_index = max(last_index, index)
             if last_index != -1:
                 graph.add_edge((preconditions[last_index], transition))
 
@@ -574,13 +641,119 @@ class ActionSplitter:
             processed.append(micro_action)
         return processed
 
+    def __chain_micro_actions(self, default_values):
+        assert self.__micro_actions,  "Expects one or more micro-actions"
+
+        def use_predicate(predicate,
+                          adder: MicroAction,
+                          needing: List[MicroAction]):
+            deleter = needing[-1]
+            condition = Condition(Atom(*predicate))
+            for micro_action in needing:
+                micro_action.add_precondition(condition)
+            if adder == deleter:
+                return
+            adder.add_transition(Transition([], Atom(*predicate), []))
+            deleter.add_transition(Transition([], NegatedAtom(*predicate), []))
+
+        use_predicate((self.START_PROCEDURE, ()),
+                      self.__micro_actions[-1],
+                      [self.__micro_actions[0]])
+
+        procedure_name = f"{self.__name}_procedure"
+        step = lambda s: f"step_{s}"
+        self.__new_predicates.append((procedure_name,
+                                      [TypedObject("?s", self.STEP_TYPE)],
+                                      [step(0)]))
+        for i in range(len(self.__micro_actions)):
+            self.__new_objects.append(step(i))
+            use_predicate((procedure_name, (step(i),)),
+                            self.__micro_actions[i - 1],
+                            [self.__micro_actions[i]])
+
+        # Handling shared arguments
+        shared_arguments = {arg: [] for arg in self.__args}
+        argument_predicate = lambda argument: f"{self.__name}_{argument[1:]}"
+        for micro_action in self.__micro_actions:
+            for arg in micro_action.args:
+                shared_arguments[arg].append(micro_action)
+        for arg, shared_micro_actions in shared_arguments.items():
+            if len(shared_micro_actions) < 2:
+                continue
+            arg_type = self.__args[arg]
+            self.__new_predicates.append((argument_predicate(arg),
+                                          [TypedObject(arg, arg_type)],
+                                          [default_values[arg_type]]))
+            use_predicate((argument_predicate(arg), (default_values[arg_type],)),
+                          shared_micro_actions[-1],
+                          [shared_micro_actions[0]])
+            use_predicate((argument_predicate(arg), (arg,)),
+                          shared_micro_actions[0], shared_micro_actions[1:])
+
+        return self
+
+
+def update_task(task: Task, actions: List[Action]) -> Task:
+    STEP_TYPE = pddl.Type(Action.STEP_TYPE)
+    def define_predicate(task: Task, predicate_info):
+        predicate_name, args_types, initial_value = predicate_info
+        task.predicates.append(pddl.Predicate(predicate_name, args_types))
+        init = Atom(predicate_name, initial_value)
+        task.init.append(init)
+        task.goal = Conjunction((*task.goal.parts, init)).simplified()
+        return task
+
+    task.types.append(STEP_TYPE)
+    task = define_predicate(task, (Action.START_PROCEDURE, (), ()))
+    new_predicates = chain.from_iterable(action.new_predicates
+                                         for action in actions)
+    task = reduce(define_predicate, new_predicates, task)
+    new_objects = set().union(*[action.new_objects for action in actions])
+    task.objects.extend([pddl.TypedObject(new_object, STEP_TYPE)
+                         for new_object in new_objects])
+    task.actions = actions
+    return task
+
+
+DOMAIN_TEMPLATE = """(define (domain {domain_name})
+(:requirements {requirements})
+(:types {types})
+(:predicates {predicates})
+{actions}
+"""
+
+def to_string(task: Task) -> str:
+    types_str1 = " ".join(f"{t.name} - {t.basetype_name}"
+                          for t in task.types if t.basetype_name)
+    types_str2 = " ".join(t.name for t in task.types if not t.basetype_name)
+    types = " ".join([types_str1, types_str2])
+    requirements = " ".join(task.requirements.requirements)
+    def predicate_str(predicate):
+        arguments = [f"{a.name} - {a.type_name}" if a.type_name else a.name
+                     for a in predicate.arguments]
+        return f"({' '.join([predicate.name, *arguments])})"
+    predicates = "\n             ".join(predicate_str(p)
+                                        for p in task.predicates)
+    actions = "\n\n".join(action.to_string("") for action in task.actions)
+    return DOMAIN_TEMPLATE.format(domain_name=task.domain_name,
+                                  requirements=requirements,
+                                  types=types,
+                                  predicates=predicates,
+                                  actions=actions)
+
 
 if __name__ == "__main__":
     print("Parsing...")
     task = pddl_parser.open()
     print("Extract knowledge...")
+    normalize.normalize(task)
+    task.dump()
     knowledge = Knowledge(task)
-    splitter = ActionSplitter(knowledge)
     print("Splitting actions ...")
-    for action in task.actions:
-        splitter.split_action(action)
+    defaults = {}
+    for obj in task.objects:
+        defaults.setdefault(obj.type_name, obj.name)
+    actions = [Action(knowledge, action, defaults) for action in task.actions]
+    task = update_task(task, actions)
+    print(" ===========> After updating <==============")
+    print(to_string(task))
