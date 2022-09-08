@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 
 
+import os
 from typing import List, Dict, Set, Tuple, Iterable, Generic, TypeVar
 from itertools import chain, permutations
 from functools import reduce
@@ -220,7 +221,7 @@ class MicroAction:
         output  = f"{indent}(:action {action_name}\n"
         output += f"{indent} :parameters ({args})\n"
         output += f"{indent} :precondition\n{preconditions}"
-        output += f"{indent} :effects\n{effects}"
+        output += f"{indent} :effect\n{effects}"
         output += f"{indent})"
         return output
 
@@ -690,6 +691,8 @@ def update_task(task: Task, actions: List[Action]) -> Task:
     new_predicates = chain.from_iterable(action.new_predicates
                                          for action in actions)
     task = reduce(define_predicate, new_predicates, task)
+    task.predicates = [p for p in task.predicates if p.name != "="]
+    task.init = [l for l in task.init if l.predicate != "="]
     new_objects = set().union(*[action.new_objects for action in actions])
     task.objects.extend([pddl.TypedObject(new_object, STEP_TYPE)
                          for new_object in new_objects])
@@ -703,6 +706,7 @@ DOMAIN_TEMPLATE = """(define (domain {domain_name})
 (:constants {constants})
 (:predicates {predicates})
 {actions}
+)
 """
 
 def domain_to_string(task: Task) -> str:
@@ -769,6 +773,17 @@ def problem_to_string(task: Task):
                                    goal=goals)
 
 
+def output(domain: str, problem: str):
+    domain_file = os.path.basename(pddl_parser.pddl_file.options.domain)
+    problem_file = os.path.basename(pddl_parser.pddl_file.options.task)
+    directory = "splitted"
+    os.makedirs(directory, exist_ok=True)
+    with open(os.path.join(directory, domain_file), "w") as output_file:
+        output_file.write(domain)
+    with open(os.path.join(directory, problem_file), "w") as output_file:
+        output_file.write(problem)
+
+
 if __name__ == "__main__":
     print("Parsing...")
     task = pddl_parser.open()
@@ -782,7 +797,6 @@ if __name__ == "__main__":
         defaults.setdefault(obj.type_name, obj.name)
     actions = [Action(knowledge, action, defaults) for action in task.actions]
     task = update_task(task, actions)
-    print(" ===========> After updating <==============")
-    print(domain_to_string(task))
-    print("########### PROBLEM ###############")
-    print(problem_to_string(task))
+    domain_str = domain_to_string(task)
+    problem_str = problem_to_string(task)
+    output(domain_str, problem_str)
