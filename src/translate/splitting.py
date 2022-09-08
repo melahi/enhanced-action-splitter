@@ -48,13 +48,6 @@ class AtomicActionPart:
                 return False
         return True
 
-    @staticmethod
-    def _literal_to_string(literal: Literal) -> str:
-        predicate = f"({' '.join([literal.predicate, *literal.args])})"
-        if literal.negated:
-            return f"(not {predicate})"
-        return predicate
-
 
 class Condition(AtomicActionPart):
     def __init__(self, condition: Literal):
@@ -72,7 +65,7 @@ class Condition(AtomicActionPart):
         return False
 
     def to_string(self, indent) -> str:
-        return indent + self._literal_to_string(self.__condition) + "\n"
+        return indent + literal_to_string(self.__condition) + "\n"
 
 
 class Transition(AtomicActionPart):
@@ -148,16 +141,16 @@ class Transition(AtomicActionPart):
         output = ""
         if not self.__conditions:
             for effect in self.__effects:
-                output += f"{indent}{self._literal_to_string(effect)}\n"
+                output += f"{indent}{literal_to_string(effect)}\n"
             return output
 
         def literals_to_string(indent, literals):
             if not literals:
                 return indent + "(and)\n"
             if len(literals) == 1:
-                return indent + self._literal_to_string(literals[0]) + "\n"
+                return indent + literal_to_string(literals[0]) + "\n"
             output  = indent + "(and "
-            output += f"\n{indent}     ".join([self._literal_to_string(literal)
+            output += f"\n{indent}     ".join([literal_to_string(literal)
                                                for literal in literals])
             output += f"\n{indent})\n"
             return output
@@ -418,7 +411,7 @@ class Action:
     Decomposes an action into a series of micro-actions, then
     Order them in a way to help the searching process."""
 
-    START_PROCEDURE = "START_PROCEDURE"
+    START_PROCEDURE = "start_procedure"
     STEP_TYPE = "steps"
 
     def __init__(self,
@@ -450,7 +443,7 @@ class Action:
                          for i, m in enumerate(self.__micro_actions))
 
     def __split_action(self, action: pddl.Action) -> List[MicroAction]:
-        conditions = self.__get_conditions(action.precondition)
+        conditions = get_conditions(action.precondition)
         parameters = [parameter.name for parameter in action.parameters]
         influential_order = self.__order_variables(parameters, conditions)
         conditions = self.__order_conditions(conditions, influential_order)
@@ -470,27 +463,16 @@ class Action:
         micro_actions = self.__merge_micro_actions(2, micro_actions)
         return micro_actions
 
-    @staticmethod
-    def __get_conditions(condition):
-        if isinstance(condition, Conjunction):
-            return list(chain(*[Action.__get_conditions(part)
-                                for part in condition.parts]))
-        if isinstance(condition, Literal):
-            return [condition]
-        if isinstance(condition, Truth):
-            return []
-        raise ValueError("Unexpected condition type!")
-
     def __get_transitions(self, raw_effects):
         effects = []
         for effect in raw_effects:
             if isinstance(effect, SimpleEffect):
                 effects.append(([], effect.effect))
             elif isinstance(effect, ConditionalEffect):
-                conditions = self.__get_conditions(effect.condition)
+                conditions = get_conditions(effect.condition)
                 effects.append((conditions, effect.effect))
             elif isinstance(effect, Effect):
-                conditions = self.__get_conditions(effect.condition)
+                conditions = get_conditions(effect.condition)
                 effects.append((conditions, effect.literal))
             else:
                 raise NotImplementedError("Unknown effect!")
@@ -718,15 +700,22 @@ def update_task(task: Task, actions: List[Action]) -> Task:
 DOMAIN_TEMPLATE = """(define (domain {domain_name})
 (:requirements {requirements})
 (:types {types})
+(:constants {constants})
 (:predicates {predicates})
 {actions}
 """
 
-def to_string(task: Task) -> str:
-    types_str1 = " ".join(f"{t.name} - {t.basetype_name}"
-                          for t in task.types if t.basetype_name)
-    types_str2 = " ".join(t.name for t in task.types if not t.basetype_name)
-    types = " ".join([types_str1, types_str2])
+def domain_to_string(task: Task) -> str:
+    types  = [f"{t.name} - {t.basetype_name}"
+              for t in task.types if t.basetype_name]
+    types += [t.name for t in task.types if not t.basetype_name]
+    types  = " ".join(types)
+    objects = {}
+    for obj in task.objects:
+        objects.setdefault(obj.type_name, []).append(obj.name)
+    constants  = [f"{' '.join(objects[t])} - {t}" for t in objects if t]
+    constants += [f"{' '.join(objects[t])}" for t in objects if not t]
+    constants = "\n            ".join(constants)
     requirements = " ".join(task.requirements.requirements)
     def predicate_str(predicate):
         arguments = [f"{a.name} - {a.type_name}" if a.type_name else a.name
@@ -738,8 +727,46 @@ def to_string(task: Task) -> str:
     return DOMAIN_TEMPLATE.format(domain_name=task.domain_name,
                                   requirements=requirements,
                                   types=types,
+                                  constants=constants,
                                   predicates=predicates,
                                   actions=actions)
+
+
+def get_conditions(condition):
+    if isinstance(condition, Conjunction):
+        return list(chain(*[get_conditions(part)
+                            for part in condition.parts]))
+    if isinstance(condition, Literal):
+        return [condition]
+    if isinstance(condition, Truth):
+        return []
+    raise ValueError("Unexpected condition type!")
+
+
+def literal_to_string(literal: Literal) -> str:
+    predicate = f"({' '.join([literal.predicate, *literal.args])})"
+    if literal.negated:
+        return f"(not {predicate})"
+    return predicate
+
+
+PROBLEM_TEMPLATE = """(define (problem {problem_name})
+(:domain {domain_name})
+(:init {init})
+(:goal {goal})
+)
+"""
+
+def problem_to_string(task: Task):
+    init = "\n       ".join(literal_to_string(l) for l in task.init)
+    goals  = "(and "
+    goals += "\n           ".join(literal_to_string(l)
+                                  for l in get_conditions(task.goal))
+    goals += ")"
+    return PROBLEM_TEMPLATE.format(problem_name=task.task_name,
+                                   domain_name=task.domain_name,
+                                   init=init,
+                                   goal=goals)
 
 
 if __name__ == "__main__":
@@ -756,4 +783,6 @@ if __name__ == "__main__":
     actions = [Action(knowledge, action, defaults) for action in task.actions]
     task = update_task(task, actions)
     print(" ===========> After updating <==============")
-    print(to_string(task))
+    print(domain_to_string(task))
+    print("########### PROBLEM ###############")
+    print(problem_to_string(task))
