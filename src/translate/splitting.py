@@ -19,6 +19,7 @@ from pddl.conditions import Conjunction, Literal, Atom, NegatedAtom, Truth
 
 
 Predicate = Tuple[str, Iterable[str]]  # predicate type
+MAX_ARGUMENTS = float('inf')
 
 
 class AtomicActionPart:
@@ -418,13 +419,14 @@ class Action:
     def __init__(self,
                  knowledge: Knowledge,
                  action: pddl.Action,
+                 max_arguments: int,
                  default_values: Dict[str, str]):  # type to default value
         self.__knowledge = knowledge
         self.__new_objects = []
         self.__new_predicates = []
         self.__name = action.name
         self.__args = {p.name: p.type_name for p in action.parameters}
-        self.__micro_actions = self.__split_action(action)
+        self.__micro_actions = self.__split_action(action, max_arguments)
         self.__chain_micro_actions(default_values)
 
     @property
@@ -443,7 +445,7 @@ class Action:
         return "\n".join(m.to_string(f"{self.__name}_{i}", self.__args, indent)
                          for i, m in enumerate(self.__micro_actions))
 
-    def __split_action(self, action: pddl.Action) -> List[MicroAction]:
+    def __split_action(self, action, max_arguments) -> List[MicroAction]:
         conditions = get_conditions(action.precondition)
         parameters = [parameter.name for parameter in action.parameters]
         influential_order = self.__order_variables(parameters, conditions)
@@ -451,6 +453,7 @@ class Action:
         conditions = [Condition(condition) for condition in conditions]
         conditions = [MicroAction().add_precondition(condition)
                       for condition in conditions]
+        conditions = self.__merge_micro_actions(max_arguments, conditions)
         transitions = self.__get_transitions(action.effects)
         transitions = [reduce(lambda micro_action, transition:
                                 micro_action.add_transition(transition),
@@ -461,7 +464,8 @@ class Action:
                                                   (transitions))]
 
         micro_actions = self.__order_micro_actions(conditions, transitions)
-        micro_actions = self.__merge_micro_actions(2, micro_actions)
+        micro_actions = self.__merge_micro_actions(max_arguments, 
+                                                   micro_actions)
         return micro_actions
 
     def __get_transitions(self, raw_effects):
@@ -590,11 +594,10 @@ class Action:
                 if arg not in first_variable_appearance:
                     first_variable_appearance[arg] = index
         for transition in transitions:
-            last_index = len(preconditions) - 1
-            # last_index = -1
-            # for arg in transition.args:
-            #     index = first_variable_appearance.get(arg, -1)
-            #     last_index = max(last_index, index)
+            last_index = -1
+            for arg in transition.args:
+                index = first_variable_appearance.get(arg, -1)
+                last_index = max(last_index, index)
             if last_index != -1:
                 graph.add_edge((preconditions[last_index], transition))
 
@@ -795,7 +798,8 @@ if __name__ == "__main__":
     defaults = {}
     for obj in task.objects:
         defaults.setdefault(obj.type_name, obj.name)
-    actions = [Action(knowledge, action, defaults) for action in task.actions]
+    actions = [Action(knowledge, action, MAX_ARGUMENTS, defaults)
+               for action in task.actions]
     task = update_task(task, actions)
     domain_str = domain_to_string(task)
     problem_str = problem_to_string(task)
