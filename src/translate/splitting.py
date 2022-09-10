@@ -777,14 +777,23 @@ def problem_to_string(task: Task):
 
 
 def output(domain: str, problem: str):
-    domain_file = os.path.basename(pddl_parser.pddl_file.options.domain)
-    problem_file = os.path.basename(pddl_parser.pddl_file.options.task)
-    directory = "splitted"
-    os.makedirs(directory, exist_ok=True)
-    with open(os.path.join(directory, domain_file), "w") as output_file:
+    domain_file = "splitted_domain.pddl"
+    problem_file = "splitted_problem.pddl"
+    with open(domain_file, "w") as output_file:
         output_file.write(domain)
-    with open(os.path.join(directory, problem_file), "w") as output_file:
+    with open(problem_file, "w") as output_file:
         output_file.write(problem)
+
+
+def find_default_objects(task: Task):
+    parents = {t.name: t.basetype_name for t in task.types}
+    defaults = {}
+    for obj in task.objects:
+        type_name = obj.type_name
+        while type_name:
+            defaults.setdefault(type_name, obj.name)
+            type_name = parents.get(type_name, None)
+    return defaults
 
 
 if __name__ == "__main__":
@@ -792,13 +801,10 @@ if __name__ == "__main__":
     task = pddl_parser.open()
     print("Extract knowledge...")
     normalize.normalize(task)
-    task.dump()
     knowledge = Knowledge(task)
     print("Splitting actions ...")
-    defaults = {}
-    for obj in task.objects:
-        defaults.setdefault(obj.type_name, obj.name)
-    actions = [Action(knowledge, action, MAX_ARGUMENTS, defaults)
+    default_objects = find_default_objects(task)
+    actions = [Action(knowledge, action, MAX_ARGUMENTS, default_objects)
                for action in task.actions]
     task = update_task(task, actions)
     domain_str = domain_to_string(task)
