@@ -19,7 +19,7 @@ from pddl.conditions import Conjunction, Literal, Atom, NegatedAtom, Truth
 
 
 Predicate = Tuple[str, Iterable[str]]  # predicate type
-MAX_ARGUMENTS = float('inf')
+MAX_ARGUMENTS = 3
 
 
 class AtomicActionPart:
@@ -796,14 +796,27 @@ def find_default_objects(task: Task):
     return defaults
 
 
+def filter_not_instantiable_actions(defaults, task: Task) -> Task:
+    actions = []
+    for action in task.actions:
+        for parameter in action.parameters:
+            if parameter.type_name not in defaults:
+                break
+        else:
+            actions.append(action)
+    task.actions = actions
+    return task
+
+
 if __name__ == "__main__":
     print("Parsing...")
     task = pddl_parser.open()
     print("Extract knowledge...")
+    default_objects = find_default_objects(task)
+    task = filter_not_instantiable_actions(default_objects, task)
     normalize.normalize(task)
     knowledge = Knowledge(task)
     print("Splitting actions ...")
-    default_objects = find_default_objects(task)
     actions = [Action(knowledge, action, MAX_ARGUMENTS, default_objects)
                for action in task.actions]
     task = update_task(task, actions)
