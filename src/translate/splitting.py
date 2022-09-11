@@ -686,7 +686,7 @@ def update_task(task: Task, actions: List[Action]) -> Task:
         task.predicates.append(pddl.Predicate(predicate_name, args_types))
         init = Atom(predicate_name, initial_value)
         task.init.append(init)
-        task.goal = Conjunction((*task.goal.parts, init)).simplified()
+        task.goal = Conjunction((task.goal, init)).simplified()
         return task
 
     task.types.append(STEP_TYPE)
@@ -695,7 +695,8 @@ def update_task(task: Task, actions: List[Action]) -> Task:
                                          for action in actions)
     task = reduce(define_predicate, new_predicates, task)
     task.predicates = [p for p in task.predicates if p.name != "="]
-    task.init = [l for l in task.init if l.predicate != "="]
+    task.init = [l for l in task.init
+                 if isinstance(l, Literal) and l.predicate != "="]
     new_objects = set().union(*[action.new_objects for action in actions])
     task.objects.extend([pddl.TypedObject(new_object, STEP_TYPE)
                          for new_object in new_objects])
