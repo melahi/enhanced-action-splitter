@@ -19,7 +19,7 @@ from pddl.conditions import Conjunction, Literal, Atom, NegatedAtom, Truth
 
 
 Predicate = Tuple[str, Iterable[str]]  # predicate type
-MAX_ARGUMENTS = 3
+MAX_ARGUMENTS = 2
 
 
 class AtomicActionPart:
@@ -54,6 +54,12 @@ class AtomicActionPart:
 class Condition(AtomicActionPart):
     def __init__(self, condition: Literal):
         self.__condition = condition
+
+    def __hash__(self) -> int:
+        return hash(self.__condition)
+
+    def __eq__(self, other: 'Condition') -> bool:
+        return self.__condition == other.__condition
 
     def find_args(self):
         if isinstance(self.__condition, Literal):
@@ -166,7 +172,7 @@ class Transition(AtomicActionPart):
 
 class MicroAction:
     def __init__(self):
-        self.__preconditions: List[Condition] = []
+        self.__preconditions: Set[Condition] = set()
         self.__transitions: List[Transition] = []
         self.__args = set()
 
@@ -187,7 +193,7 @@ class MicroAction:
         return [e for t in self.__transitions for e in t.effects]
 
     def add_precondition(self, condition: Condition):
-        self.__preconditions.append(condition)
+        self.__preconditions.add(condition)
         self.__args.update(condition.find_args())
         return self
 
@@ -197,13 +203,13 @@ class MicroAction:
         return self
 
     def is_threatened_by(self, other: 'MicroAction') -> bool:
-        parts = self.__preconditions + self.__transitions
+        parts = list(self.__preconditions) + self.__transitions
         return any(part.is_threatened_by(other_transition)
                    for other_transition in other.__transitions 
                    for part in parts)
 
     def merge(self, other: 'MicroAction') -> 'MicroAction':
-        self.__preconditions.extend(other.__preconditions)
+        self.__preconditions.update(other.__preconditions)
         self.__transitions.extend(other.__transitions)
         self.__args.update(other.__args)
         return self
@@ -428,6 +434,7 @@ class Action:
         self.__args = {p.name: p.type_name for p in action.parameters}
         self.__micro_actions = self.__split_action(action, max_arguments)
         self.__chain_micro_actions(default_values)
+        self.__propagate_conditions(get_conditions(action.precondition))
 
     @property
     def new_objects(self):
@@ -677,6 +684,15 @@ class Action:
                           shared_micro_actions[0], shared_micro_actions[1:])
 
         return self
+
+    def __propagate_conditions(self, conditions: List[Literal]):
+        for condition in conditions:
+            condition = MicroAction().add_precondition(Condition(condition))
+            for micro_action in self.__micro_actions:
+                if condition.args.issubset(micro_action.args):
+                    micro_action.merge(condition)
+                if condition.is_threatened_by(micro_action):
+                    break
 
 
 def update_task(task: Task, actions: List[Action]) -> Task:
