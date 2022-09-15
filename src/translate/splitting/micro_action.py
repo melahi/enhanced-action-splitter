@@ -1,0 +1,216 @@
+from typing import List, Dict, Set, Tuple, Iterable, Generic, TypeVar
+
+from pddl.conditions import Literal
+
+from .common import literal_to_string
+
+class AtomicActionPart:
+    def __str__(self):
+        return self.to_string(indent="")
+
+    def find_args(self):
+        raise NotImplementedError
+
+    def is_threatened_by(self, transition: 'Transition') -> bool:
+        raise NotImplementedError
+
+    def to_string(self, indent) -> str:
+        raise NotImplementedError
+
+    @staticmethod
+    def _find_args_in_literal(literal: Literal):
+        return {arg for arg in literal.args if arg.startswith("?")}
+
+    @staticmethod
+    def _are_possibly_the_same(literal1: Literal, literal2: Literal) -> bool:
+        if literal1.predicate != literal2.predicate:
+            return False
+        for arg1, arg2 in zip(literal1.args, literal2.args):
+            if arg1.startswith("?") or arg2.startswith("?"):
+                continue
+            if arg1 != arg2:
+                return False
+        return True
+
+
+class Condition(AtomicActionPart):
+    def __init__(self, condition: Literal):
+        self.__condition = condition
+
+    def __hash__(self) -> int:
+        return hash(self.__condition)
+
+    def __eq__(self, other: 'Condition') -> bool:
+        return self.__condition == other.__condition
+
+    def find_args(self):
+        if isinstance(self.__condition, Literal):
+            return self._find_args_in_literal(self.__condition)
+        raise NotImplementedError("Other Conditions are not supported!")
+
+    def is_threatened_by(self, transition: 'Transition') -> bool:
+        for effect in transition.effects:
+            if self._are_possibly_the_same(self.__condition, effect):
+                return True
+        return False
+
+    def to_string(self, indent) -> str:
+        return indent + literal_to_string(self.__condition) + "\n"
+
+
+class Transition(AtomicActionPart):
+    def __init__(self,
+                 conditions: List[Literal],
+                 main_effect: Literal,
+                 variables_ids: Set[int]):
+        self.__main_effect = main_effect
+        self.__conditions = conditions
+        self.__variables_ids = variables_ids
+        self.__effects = [main_effect]
+
+    def check_delete_effect(self, variables_ids, conditions, del_effect):
+        """Updates the transition according to the given delete effect
+
+        Checks if the given delete effect is related to this transition
+        or not; if it affects the same state variable as the transition,
+        and its condition is logical consequence of the transition's
+        conditions, then the delete effect is related to this transition.
+
+        Returns:
+            Set[int]: The set of IDs of common state variables
+        """
+        common_variables_ids = self.__variables_ids.intersection(variables_ids)
+        if not common_variables_ids:
+            # `del_effect` is not related to this transition
+            return set()
+
+        statements = set().union(*self.__conditions,
+                                 {self.__main_effect.negate()},
+                                 {del_effect.negate()})
+        # TODO: We are supposed to check if `condition` is a logical
+        #       consequence of `statement` or not. In the following,
+        #       for simplicity, I have not used some other knowledge in
+        #       action's precondition, the problem itself, or even the
+        #       possible unification, so it might be not precise. I
+        #       should fix this!
+        if statements.issuperset(set(conditions)):
+            self.__effects.append(del_effect)
+            return common_variables_ids
+
+        return set()
+
+    def find_args(self):
+        args = set().union(*[self._find_args_in_literal(condition)
+                             for condition in self.__conditions])
+        args = args.union(*[self._find_args_in_literal(effect)
+                            for effect in self.__effects])
+        return args
+
+    @property
+    def effects(self):
+        return self.__effects.copy()
+
+    def is_threatened_by(self, transition: 'Transition') -> bool:
+        for effect in transition.effects:
+            for condition in self.__conditions:
+                if self._are_possibly_the_same(effect, condition):
+                    return True
+            # Delete effect should not be after the add effect.
+            # It somehow might be confusing because the interpretation
+            # is like our negative effect is threatened by another
+            # positive effect, so the positive effect should be placed
+            # after the negative one.
+            if not effect.negated:
+                for effect2 in self.__effects:
+                    if effect2.negated:
+                        if self._are_possibly_the_same(effect, effect2):
+                            return True
+        return False
+
+    def to_string(self, indent) -> str:
+        output = ""
+        if not self.__conditions:
+            for effect in self.__effects:
+                output += f"{indent}{literal_to_string(effect)}\n"
+            return output
+
+        def literals_to_string(indent, literals):
+            if not literals:
+                return indent + "(and)\n"
+            if len(literals) == 1:
+                return indent + literal_to_string(literals[0]) + "\n"
+            output  = indent + "(and "
+            output += f"\n{indent}     ".join([literal_to_string(literal)
+                                               for literal in literals])
+            output += f"\n{indent})\n"
+            return output
+
+        output  = indent + "(when\n"
+        output += literals_to_string(indent + "      ", self.__conditions)
+        output += literals_to_string(indent + "      ", self.__effects)
+        output += indent + ")\n"
+        return output
+
+
+class MicroAction:
+    def __init__(self):
+        self.__preconditions: Set[Condition] = set()
+        self.__transitions: List[Transition] = []
+        self.__args = set()
+
+    @property
+    def args(self):
+        return self.__args.copy()
+
+    @property
+    def preconditions(self):
+        return self.__preconditions.copy()  # deep copy?
+
+    @property
+    def transitions(self):
+        return self.__transitions.copy() # deep copy?
+
+    @property
+    def effects(self):
+        return [e for t in self.__transitions for e in t.effects]
+
+    def add_precondition(self, condition: Condition):
+        self.__preconditions.add(condition)
+        self.__args.update(condition.find_args())
+        return self
+
+    def add_transition(self, transition: Transition):
+        self.__transitions.append(transition)
+        self.__args.update(transition.find_args())
+        return self
+
+    def is_threatened_by(self, other: 'MicroAction') -> bool:
+        parts = list(self.__preconditions) + self.__transitions
+        return any(part.is_threatened_by(other_transition)
+                   for other_transition in other.__transitions 
+                   for part in parts)
+
+    def merge(self, other: 'MicroAction') -> 'MicroAction':
+        self.__preconditions.update(other.__preconditions)
+        self.__transitions.extend(other.__transitions)
+        self.__args.update(other.__args)
+        return self
+
+    def to_string(self, action_name, args_types, indent) -> str:
+        args = ' '.join([f"{arg} - {args_types[arg]}" for arg in self.__args])
+        preconditions = f"{indent}\t\t(and\n"
+        for precondition in self.__preconditions:
+            preconditions += precondition.to_string(indent + "\t\t\t")
+        preconditions += f"{indent}\t\t)\n"
+        effects = f"{indent}\t\t(and\n"
+        for transition in self.__transitions:
+            effects += transition.to_string(indent + "\t\t\t")
+        effects += f"{indent}\t\t)\n"
+
+        output  = f"{indent}(:action {action_name}\n"
+        output += f"{indent} :parameters ({args})\n"
+        output += f"{indent} :precondition\n{preconditions}"
+        output += f"{indent} :effect\n{effects}"
+        output += f"{indent})"
+        return output
+
