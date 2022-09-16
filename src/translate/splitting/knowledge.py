@@ -1,9 +1,11 @@
 from typing import List, Tuple, Dict
+from itertools import product, chain
 
 import normalize
 from invariant_finder import find_invariants
 from invariants import Invariant
-from pddl import Task, Literal, Assign
+from pddl import Task, Literal, Assign, Effect
+from pddl.conditions import ConstantCondition, JunctorCondition
 
 from .common import Predicate
 
@@ -32,15 +34,23 @@ class Knowledge:
                                    # it shows each predicate participate
                                    # in which state variables.
 
-        self.__domain_size: Dict[str, int] = dict ()  # type -> size
+        self.__objects: Dict[str, list] = dict() # type -> List of objects
         self.__extract_knowledge(task)
+        self.__eliminate_universal_quantifier_effects(task)
+
+    @property
+    def default_objects(self):
+        return {t: self.__objects[t][0] for t in self.__objects}
 
     def get_relations(self, predicate: Predicate) -> List[Tuple[str, str]]:
+        is_constant = lambda arg: not str(arg).startswith("?")
         relations = []
         for omitted_position in self.__omitted_positions.get(predicate[0], []):
             counted_variable = predicate[1][omitted_position]
+            if is_constant(counted_variable):
+                continue
             for arg in predicate[1]:
-                if arg == counted_variable:
+                if arg == counted_variable or is_constant(arg):
                     continue
                 relations.append((arg, counted_variable))
         return relations
@@ -51,10 +61,10 @@ class Knowledge:
     def is_static(self, predicate_name: str):
         return predicate_name in self.__variables
 
-    # def objects_count()
-
     def __extract_knowledge(self, task: Task):
         normalize.normalize(task)
+        self.__extract_domains(task)
+        task = self.__filter_not_instantiable_actions(task)
         invariants = find_invariants(task, None)
         invariant_size = self.__exactly_one_invariants(invariants, task.init)
         for invariant in invariant_size:
@@ -145,3 +155,50 @@ class Knowledge:
 
         (state_variables, _) = __find_minimum_state_variables(predicates)
         return state_variables
+
+    def __filter_not_instantiable_actions(self, task: Task):
+        actions = []
+        for action in task.actions:
+            for parameter in action.parameters:
+                if parameter.type_name not in self.__objects:
+                    break
+            else:
+                actions.append(action)
+        task.actions = actions
+        return task
+
+    def __extract_domains(self, task: Task):
+        objects = self.__objects
+        parents = {t.name: t.basetype_name for t in task.types}
+        for obj in task.objects:
+            type_name = obj.type_name
+            while type_name:
+                objects.setdefault(type_name, []).append(obj)
+                type_name = parents.get(type_name, None)
+
+    def __eliminate_universal_quantifier_effects(self, task: Task):
+        def instantiate(condition, mapping):
+            if isinstance(condition, ConstantCondition):
+                return condition
+            if isinstance(condition, Literal):
+                return condition.rename_variables(mapping)
+            if isinstance(condition, JunctorCondition):
+                new_parts = [instantiate(p, mapping) for p in condition.parts]
+                return condition.change_parts(new_parts)
+            raise NotImplementedError("Not expected condition!")
+
+        def eliminate(effect: Effect):
+            assert isinstance(effect, Effect),  "Unexpected effect type!"
+            mapping_keys = [p.name for p in effect.parameters]
+            domains = [self.__objects[p.type_name] for p in effect.parameters]
+            mappings = (dict(zip(mapping_keys, x)) for x in product(*domains))
+            result = []
+            for mapping in mappings:
+                result.append(Effect([],
+                                     instantiate(effect.condition, mapping),
+                                     instantiate(effect.literal, mapping)))
+            return result
+
+        for action in task.actions:
+            action.effects = chain(*(eliminate(e) for e in action.effects))
+        return task

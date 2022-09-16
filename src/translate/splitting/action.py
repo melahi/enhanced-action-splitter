@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import List
 from itertools import chain, permutations
 from functools import reduce
 
@@ -25,15 +25,14 @@ class Action:
     def __init__(self,
                  knowledge: Knowledge,
                  action: pddl.Action,
-                 max_arguments: int,
-                 default_values: Dict[str, str]):  # type to default value
+                 max_arguments: int):
         self.__knowledge = knowledge
         self.__new_objects = []
         self.__new_predicates = []
         self.__name = action.name
         self.__args = {p.name: p.type_name for p in action.parameters}
         self.__micro_actions = self.__split_action(action, max_arguments)
-        self.__chain_micro_actions(default_values)
+        self.__chain_micro_actions(knowledge.default_objects)
         self.__propagate_conditions(get_conditions(action.precondition))
 
     @property
@@ -109,8 +108,8 @@ class Action:
                  .update(transition
                          .check_delete_effect(variables, conditions, effect)))
             if covered_variables != variables:
-                print("WARNING: Not all variables are covered by:", effect)
-                print("         We fix it by adding a (redundant) transition")
+                # print("WARNING: Not all variables are covered by:", effect)
+                # print("         We fix it by adding a (redundant) transition")
                 transitions.append(Transition(conditions, effect, set()))
         return transitions
 

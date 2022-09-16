@@ -1,4 +1,4 @@
-from typing import List, Dict, Set, Tuple, Iterable, Generic, TypeVar
+from typing import List, Set
 
 from pddl.conditions import Literal
 
@@ -19,14 +19,14 @@ class AtomicActionPart:
 
     @staticmethod
     def _find_args_in_literal(literal: Literal):
-        return {arg for arg in literal.args if arg.startswith("?")}
+        return {arg for arg in literal.args if str(arg).startswith("?")}
 
     @staticmethod
     def _are_possibly_the_same(literal1: Literal, literal2: Literal) -> bool:
         if literal1.predicate != literal2.predicate:
             return False
         for arg1, arg2 in zip(literal1.args, literal2.args):
-            if arg1.startswith("?") or arg2.startswith("?"):
+            if str(arg1).startswith("?") or str(arg2).startswith("?"):
                 continue
             if arg1 != arg2:
                 return False
@@ -213,4 +213,3 @@ class MicroAction:
         output += f"{indent} :effect\n{effects}"
         output += f"{indent})"
         return output
-

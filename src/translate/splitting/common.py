@@ -1,14 +1,17 @@
 from typing import Tuple, Iterable
 from itertools import chain
 
-from pddl.conditions import Literal, Conjunction, Truth
+from pddl import Literal, Conjunction, Truth, TypedObject
 
 
 Predicate = Tuple[str, Iterable[str]]  # predicate type
 
 
 def literal_to_string(literal: Literal) -> str:
-    predicate = f"({' '.join([literal.predicate, *literal.args])})"
+    elements = [literal.predicate]
+    elements += [a.name if isinstance(a, TypedObject) else a
+                 for a in literal.args]
+    predicate = f"({' '.join(elements)})"
     if literal.negated:
         return f"(not {predicate})"
     return predicate
