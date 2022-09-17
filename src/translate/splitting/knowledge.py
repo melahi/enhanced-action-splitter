@@ -1,11 +1,14 @@
 from typing import List, Tuple, Dict
 from itertools import product, chain
 
+import pandas as pd
+
 import normalize
 from invariant_finder import find_invariants
 from invariants import Invariant
 from pddl import Task, Literal, Assign, Effect
 from pddl.conditions import ConstantCondition, JunctorCondition
+from pddl.pddl_types import TypedObject
 
 from .common import Predicate
 
@@ -35,8 +38,12 @@ class Knowledge:
                                    # in which state variables.
 
         self.__objects: Dict[str, list] = dict() # type -> List of objects
+
+        self.__statics: Dict[str, pd.DataFrame] = dict() # Static relations
+
         self.__extract_knowledge(task)
         self.__eliminate_universal_quantifier_effects(task)
+        self.__set_statics(task)
 
     @property
     def default_objects(self):
@@ -58,8 +65,37 @@ class Knowledge:
     def get_variables(self, literal: Literal):
         return self.__variables.get(literal.predicate, set()).copy()
 
-    def is_static(self, predicate_name: str):
-        return predicate_name in self.__variables
+    def count_estimate(self,
+                       args: List[TypedObject],
+                       conditions: List[Literal]) -> int:
+        """ Calculates an upper-bound estimate for possible instantiations
+
+        Exploiting the static knowledge of the domain, this function
+        finds a virtually tight upper-bound for the number of possible
+        instantiations of the `args`, based on the given `conditions`.
+        """
+        covered_args = []
+        static_relations = []
+        for condition in conditions:
+            relation = self.__statics.get(condition.predicate, None)
+            if relation is None:
+                continue
+            condition_args = [a.name if isinstance(a, TypedObject) else a
+                              for a in condition.args]
+            covered_args.extend(condition_args)
+            relation = relation.copy(deep=False)
+            relation.columns = condition_args
+            constant_args = {a: a
+                             for a in condition_args if not a.startswith("?")}
+            if constant_args:
+                relation = relation.merge(constant_args)
+            static_relations.append(relation)
+        estimate_count = self.__join_result_count(static_relations)
+        for arg in args:
+            if arg.name in covered_args:
+                continue
+            estimate_count *= len(self.__objects[arg.type_name])
+        return estimate_count
 
     def __extract_knowledge(self, task: Task):
         normalize.normalize(task)
@@ -200,5 +236,37 @@ class Knowledge:
             return result
 
         for action in task.actions:
-            action.effects = chain(*(eliminate(e) for e in action.effects))
+            action.effects = [*chain(*(eliminate(e) for e in action.effects))]
         return task
+
+    @staticmethod
+    def __find_static_predicates(task: Task):
+        dynamic_predicates = set(['='])  # Excluding '=' from static predicates
+        for action in task.actions:
+            for effect in action.effects:
+                dynamic_predicates.add(effect.literal.predicate)
+        return [p for p in task.predicates if p.name not in dynamic_predicates]
+
+    def __set_statics(self, task: Task):
+        statics = {s.name: [] for s in self.__find_static_predicates(task)}
+        for initial_value in task.init:
+            statics.get(initial_value.predicate, []).append(initial_value.args)
+        self.__statics = {k: pd.DataFrame(v) for k, v in statics.items()}
+
+    @staticmethod
+    def __join_result_count(relations: List[pd.DataFrame]) -> int:
+        def are_mergeable(relation1, relation2):
+            return any(c in relation2.columns for c in relation1.columns)
+        count = 1
+        while relations:
+            current_relation = relations.pop()
+            while True:
+                # A naive approach to join the relations, it can be improved!
+                for i in range(len(relations)):
+                    if are_mergeable(current_relation, relations[i]):
+                        current_relation.merge(relations.pop(i))
+                        break
+                else:
+                    break
+            count *= current_relation.shape[0]
+        return count
