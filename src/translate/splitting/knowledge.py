@@ -41,9 +41,10 @@ class Knowledge:
 
         self.__statics: Dict[str, pd.DataFrame] = dict() # Static relations
 
+        self.__set_statics(task)
+        self.__set_static_function()
         self.__extract_knowledge(task)
         self.__eliminate_universal_quantifier_effects(task)
-        self.__set_statics(task)
 
     @property
     def default_objects(self):
@@ -270,3 +271,20 @@ class Knowledge:
                     break
             count *= current_relation.shape[0]
         return count
+
+    def __set_static_function(self):
+        """Sets static functions
+        
+        This function finds those static relations that can be
+        considered as a function (assigns only one value to each index).
+        Those functions then are appended to `self.__omitted_positions`
+        and the omitted position will be the index position of the value.
+        """
+        for name, relation in self.__statics.items():
+            if len(relation.columns) < 2:
+                continue
+            for i, column in enumerate(relation.columns):
+                candidate = relation.drop(columns=[column]).drop_duplicates()
+                if candidate.shape[0] == relation.shape[0]:
+                    self.__omitted_positions.setdefault(name, []).append(i)
+        return self
