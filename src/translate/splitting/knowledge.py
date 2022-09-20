@@ -6,7 +6,7 @@ import pandas as pd
 import normalize
 from invariant_finder import find_invariants
 from invariants import Invariant
-from pddl import Task, Literal, Assign, Effect
+from pddl import Task, Literal, Atom, Assign, Effect
 from pddl.conditions import ConstantCondition, JunctorCondition
 from pddl.pddl_types import TypedObject
 
@@ -75,6 +75,8 @@ class Knowledge:
         finds a virtually tight upper-bound for the number of possible
         instantiations of the `args`, based on the given `conditions`.
         """
+        # NOTE: We do not support negative literals
+        condition = [c for c in conditions if isinstance(c, Atom)]
         covered_args = []
         static_relations = []
         for condition in conditions:
@@ -261,16 +263,16 @@ class Knowledge:
             return any(c in relation2.columns for c in relation1.columns)
         count = 1
         while relations:
-            current_relation = relations.pop()
+            current = relations.pop()
             while True:
                 # A naive approach to join the relations, it can be improved!
                 for i in range(len(relations)):
-                    if are_mergeable(current_relation, relations[i]):
-                        current_relation.merge(relations.pop(i))
+                    if are_mergeable(current, relations[i]):
+                        current = current.merge(relations.pop(i))
                         break
                 else:
                     break
-            count *= current_relation.shape[0]
+            count *= current.shape[0]
         return count
 
     def __set_static_function(self):
