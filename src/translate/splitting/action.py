@@ -25,13 +25,13 @@ class Action:
     def __init__(self,
                  knowledge: Knowledge,
                  action: pddl.Action,
-                 max_arguments: int):
+                 size_threshold: int):
         self.__knowledge = knowledge
         self.__new_objects = []
         self.__new_predicates = []
         self.__name = action.name
         self.__args = {p.name: p.type_name for p in action.parameters}
-        self.__micro_actions = self.__split_action(action, max_arguments)
+        self.__micro_actions = self.__split_action(action, size_threshold)
         self.__chain_micro_actions(knowledge.default_objects)
         self.__propagate_conditions(get_conditions(action.precondition))
 
@@ -51,16 +51,19 @@ class Action:
         return "\n".join(m.to_string(f"{self.__name}_{i}", self.__args, indent)
                          for i, m in enumerate(self.__micro_actions))
 
-    def __split_action(self, action, max_arguments) -> List[MicroAction]:
-        conditions = get_conditions(action.precondition)
+    def __split_action(self, action, size_threshold) -> List[MicroAction]:
+        preconditions = get_conditions(action.precondition)
         parameters = [parameter.name for parameter in action.parameters]
-        influential_order = self.__order_variables(parameters, conditions)
-        conditions = self.__order_conditions(conditions, influential_order)
+        influential_order = self.__order_variables(parameters, preconditions)
+        conditions = self.__order_conditions(preconditions, influential_order)
         conditions = [Condition(condition) for condition in conditions]
         conditions = [MicroAction().add_precondition(condition)
                       for condition in conditions]
-        conditions = self.__merge_micro_actions(max_arguments, conditions)
+        conditions = self.__merge_micro_actions(conditions, size_threshold)
         transitions = self.__get_transitions(action.effects)
+
+        # Create ONE micro-action for each transitions cycle, (strongly
+        # connected component of transitions).
         transitions = [reduce(lambda micro_action, transition:
                                 micro_action.add_transition(transition),
                               cyclic_transitions,
@@ -69,9 +72,12 @@ class Action:
                                                   .__find_cyclic_transitions
                                                   (transitions))]
 
+        transitions = [self.__complete_transition(t,
+                                                  preconditions,
+                                                  size_threshold)
+                       for t in transitions]
         micro_actions = self.__order_micro_actions(conditions, transitions)
-        micro_actions = self.__merge_micro_actions(max_arguments, 
-                                                   micro_actions)
+        micro_actions = self.__merge_micro_actions(micro_actions, 0)
         return micro_actions
 
     def __get_transitions(self, raw_effects):
@@ -212,18 +218,21 @@ class Action:
                     + [1] * len(micro_action.preconditions))
         return graph.topological_order(vertex_priority=priority)
 
-    @staticmethod
-    def __merge_micro_actions(max_arguments:int,
-                              micro_actions: List[MicroAction]):
-        # TODO: We might be able to optimize this method to improve its result
-
+    def __merge_micro_actions(self,
+                              micro_actions: List[MicroAction],
+                              size_threshold:int):
         def should_be_merged(action1: MicroAction, action2: MicroAction):
             if len(action1.args) < len(action2.args):
                 return should_be_merged(action2, action1)
-            if action2.args and not action1.args.intersection(action2.args):
+            if action1.args.issuperset(action2.args):
+                return True
+            if action1.args.isdisjoint(action2.args) or not size_threshold:
                 return False
-            return (action1.args.issuperset(action2.args)
-                    or len(action1.args.union(action2.args)) <= max_arguments)
+            conditions = set(c.condition for c in action1.preconditions)
+            conditions.update(c.condition for c in action2.preconditions)
+            args = action1.args.union(action2.args)
+            estimate = self.__count_estimate(args, conditions)
+            return estimate < size_threshold
 
         processed = [micro_actions[0]]
         for micro_action in micro_actions[1:]:
@@ -292,3 +301,48 @@ class Action:
                     micro_action.merge(condition)
                 if condition.is_threatened_by(micro_action):
                     break
+
+    def __complete_transition(self,
+                              transition: MicroAction,
+                              conditions: List[Condition],
+                              size_threshold: int) -> Transition:
+        """Add related conditions to the given Transition
+
+        Find transition's related conditions and add them to it as much
+        as the upper-bound estimate of the of grounded actions count for
+        the transition is less than the given threshold.
+        """
+
+        conditions = [(MicroAction().add_precondition(Condition(condition)),
+                       condition)
+                      for condition in conditions]
+        added_conditions = []
+        args = transition.args
+
+        level_off = False
+        while not level_off:
+            level_off = True
+            best = (float('inf'), None, None)
+            for (micro_action, condition) in conditions:
+                if args.isdisjoint(micro_action.args):
+                    continue
+                if args.issuperset(micro_action.args):
+                    best = (0, micro_action, condition)
+                    break
+                estimate = (self
+                            .__count_estimate(args.union(micro_action.args),
+                                              added_conditions + [condition]))
+                if estimate < best[0]:
+                    best = (estimate, micro_action, condition)
+            if (   best[0] < size_threshold
+                or best[0] <= self.__count_estimate(args, added_conditions)):
+                transition = transition.merge(best[1])
+                added_conditions += [best[2]]
+                level_off = False
+                conditions.remove((best[1], best[2]))
+                args.update(best[1].args)
+        return transition
+    
+    def __count_estimate(self, args, conditions):
+        args = [TypedObject(arg, self.__args[arg]) for arg in args]
+        return self.__knowledge.count_estimate(args, conditions)

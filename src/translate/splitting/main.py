@@ -8,14 +8,14 @@ from .action import Action
 from .task_to_string import output
 
 
-MAX_ARGUMENTS = 4
+SIZE_THRESHOLD = 100000
 
 
 def main(task: Task):
     print("Extract knowledge...")
     knowledge = Knowledge(task)
     print("Splitting actions ...")
-    actions = [Action(knowledge, action, MAX_ARGUMENTS)
+    actions = [Action(knowledge, action, SIZE_THRESHOLD)
                for action in task.actions]
     output(task, actions)
 

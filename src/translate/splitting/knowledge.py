@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict
+from typing import Iterable, List, Tuple, Dict
 from itertools import product, chain
 
 import pandas as pd
@@ -68,7 +68,7 @@ class Knowledge:
 
     def count_estimate(self,
                        args: List[TypedObject],
-                       conditions: List[Literal]) -> int:
+                       conditions: Iterable[Literal]) -> int:
         """ Calculates an upper-bound estimate for possible instantiations
 
         Exploiting the static knowledge of the domain, this function
@@ -256,6 +256,7 @@ class Knowledge:
 
     @staticmethod
     def __join_result_count(relations: List[pd.DataFrame]) -> int:
+        # TODO: Use memoization to optimize this function
         def are_mergeable(relation1, relation2):
             return any(c in relation2.columns for c in relation1.columns)
         count = 1

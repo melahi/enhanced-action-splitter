@@ -43,6 +43,10 @@ class Condition(AtomicActionPart):
     def __eq__(self, other: 'Condition') -> bool:
         return self.__condition == other.__condition
 
+    @property
+    def condition(self):
+        return self.__condition
+
     def find_args(self):
         if isinstance(self.__condition, Literal):
             return self._find_args_in_literal(self.__condition)
