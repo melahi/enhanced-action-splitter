@@ -88,10 +88,10 @@ class Knowledge:
             covered_args.extend(condition_args)
             relation = relation.copy(deep=False)
             relation.columns = condition_args
-            constant_args = {a: a
+            constant_args = {a: [a]
                              for a in condition_args if not a.startswith("?")}
             if constant_args:
-                relation = relation.merge(constant_args)
+                relation = relation.merge(pd.DataFrame(constant_args))
             static_relations.append(relation)
         estimate_count = self.__join_result_count(static_relations)
         for arg in args:
