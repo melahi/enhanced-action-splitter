@@ -10,7 +10,7 @@ from pddl import Task, Literal, Atom, Assign, Effect
 from pddl.conditions import ConstantCondition, JunctorCondition
 from pddl.pddl_types import TypedObject
 
-from .common import Predicate
+from .common import Predicate, get_conditions
 
 
 class Knowledge:
@@ -202,7 +202,13 @@ class Knowledge:
                 if parameter.type_name not in self.__objects:
                     break
             else:
-                actions.append(action)
+                for condition in get_conditions(action.precondition):
+                    if (    isinstance(condition, Atom)
+                        and condition.predicate in self.__statics
+                        and not self.__statics[condition.predicate].shape[0]):
+                        break
+                else:
+                    actions.append(action)
         task.actions = actions
         return task
 
@@ -253,7 +259,9 @@ class Knowledge:
     def __set_statics(self, task: Task):
         statics = {s.name: [] for s in self.__find_static_predicates(task)}
         for initial_value in task.init:
-            statics.get(initial_value.predicate, []).append(initial_value.args)
+            if (    isinstance(initial_value, Atom)
+                and initial_value.predicate in statics):
+                statics[initial_value.predicate].append(initial_value.args)
         self.__statics = {k: pd.DataFrame(v) for k, v in statics.items()}
 
     @staticmethod

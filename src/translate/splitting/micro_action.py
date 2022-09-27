@@ -1,3 +1,4 @@
+from itertools import chain
 from typing import List, Set
 
 from pddl.conditions import Literal
@@ -54,6 +55,8 @@ class Condition(AtomicActionPart):
 
     def is_threatened_by(self, transition: 'Transition') -> bool:
         for effect in transition.effects:
+            if self.__condition.negated == effect.negated:
+                continue
             if self._are_possibly_the_same(self.__condition, effect):
                 return True
         return False
@@ -113,6 +116,10 @@ class Transition(AtomicActionPart):
     @property
     def effects(self):
         return self.__effects.copy()
+
+    @property
+    def has_condition(self):
+        return len(self.__conditions) != 0
 
     def is_threatened_by(self, transition: 'Transition') -> bool:
         for effect in transition.effects:
@@ -194,11 +201,35 @@ class MicroAction:
                    for other_transition in other.__transitions 
                    for part in parts)
 
-    def merge(self, other: 'MicroAction') -> 'MicroAction':
-        self.__preconditions.update(other.__preconditions)
-        self.__transitions.extend(other.__transitions)
-        self.__args.update(other.__args)
+    def merge(self, previous: 'MicroAction') -> 'MicroAction':
+        # NOTE: In the ordered list of micro-actions, `previous` should
+        #       be placed before `self`.
+        invalid_conditions = list(chain(*(t.effects
+                                        for t in previous.transitions
+                                        if not t.has_condition)))
+        self.__preconditions = set(p
+                                   for p in self.__preconditions
+                                   if p.condition not in invalid_conditions)
+        self.__preconditions.update(previous.__preconditions)
+        self.__transitions.extend(previous.__transitions)
+        self.__args.update(previous.__args)
         return self
+
+    def update_partial_state(self,
+                             partial_state: Set[Condition]) -> Set[Condition]:
+        partial_state.update(self.__preconditions)
+        new_partial_state = set()
+        for condition in partial_state:
+            for transition in self.__transitions:
+                if condition.is_threatened_by(transition):
+                    break
+            else:
+                new_partial_state.add(condition)
+        for transition in self.__transitions:
+            if transition.has_condition:
+                continue
+            new_partial_state.update(Condition(e) for e in transition.effects)
+        return new_partial_state
 
     def to_string(self, action_name, args_types, indent) -> str:
         args = ' '.join([f"{arg} - {args_types[arg]}" for arg in self.__args])

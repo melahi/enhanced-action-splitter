@@ -1,4 +1,4 @@
-from typing import List
+from typing import Iterable, List, Set
 from itertools import chain, permutations
 from functools import reduce
 
@@ -33,7 +33,6 @@ class Action:
         self.__args = {p.name: p.type_name for p in action.parameters}
         self.__micro_actions = self.__split_action(action, size_threshold)
         self.__chain_micro_actions(knowledge.default_objects)
-        self.__propagate_conditions(get_conditions(action.precondition))
 
     @property
     def new_objects(self):
@@ -56,26 +55,14 @@ class Action:
         parameters = [parameter.name for parameter in action.parameters]
         influential_order = self.__order_variables(parameters, preconditions)
         conditions = self.__order_conditions(preconditions, influential_order)
-        conditions = [Condition(condition) for condition in conditions]
-        conditions = [MicroAction().add_precondition(condition)
-                      for condition in conditions]
+        conditions = [Condition(c) for c in conditions]
+        conditions = [MicroAction().add_precondition(c) for c in conditions]
         conditions = self.__merge_micro_actions(conditions, size_threshold)
         transitions = self.__get_transitions(action.effects)
-
-        # Create ONE micro-action for each transitions cycle, (strongly
-        # connected component of transitions).
-        transitions = [reduce(lambda micro_action, transition:
-                                micro_action.add_transition(transition),
-                              cyclic_transitions,
-                              MicroAction())
-                       for cyclic_transitions in (self
-                                                  .__find_cyclic_transitions
-                                                  (transitions))]
-
-        transitions = [self.__complete_transition(t,
-                                                  preconditions,
-                                                  size_threshold)
-                       for t in transitions]
+        preconditions = {Condition(p) for p in preconditions}
+        transitions = self.__prepare_transitions(preconditions,
+                                                 transitions,
+                                                 size_threshold)
         micro_actions = self.__order_micro_actions(conditions, transitions)
         micro_actions = self.__merge_micro_actions(micro_actions, 0)
         return micro_actions
@@ -159,27 +146,45 @@ class Action:
                                     if arg.startswith("?")})
         return conditions
 
+    def __prepare_transitions(self,
+                              partial_state: Set[Condition],
+                              transitions: List[Transition],
+                              size_threshold: int) -> List[MicroAction]:
+        """Prepares the ordered micro-action list of transitions
 
-    @staticmethod
-    def __find_cyclic_transitions(transitions: List[Transition]):
-        """Partitions the input into sets of cyclic transitions
-
-        It is possible that a transition affect other transition's
-        condition. This relation might even be cyclic. For example,
-        one transition might affect the condition of another one, and
-        the that one might affect the first one's condition.
+        To complete the actions' definition, we need to specify its
+        transitions. Here, we try to complete -as much as possible- the
+        related information needed by each transition. It is also
+        important to consider the possibility that a transition affect
+        other transition's condition. This relation might even be cyclic.
+        For example, one transition might affect the condition of another
+        one, and that one might affect the first one's condition. Here,
+        we find those transitions and merge them.
+        Finally the ordered list of completed transitions will be
+        returned as a list of micro-actions.
 
         Returns:
-            List[List[Transitions]]: Each element is a cyclic transitions list
+            List[MicroAction]: Ordered transitions
         """
-
         # Constructing the ordered graph
-        threats = {transition: [] for transition in transitions}
+        graph = {transition: [] for transition in transitions}
         for transition1, transition2 in permutations(transitions, 2):
             if transition1.is_threatened_by(transition2):
-                threats[transition1].append(transition2)
+                graph[transition1].append(transition2)
 
-        return get_sccs_adjacency_dict(threats)
+        components = get_sccs_adjacency_dict(graph)
+   
+        transitions = [reduce(lambda micro_action, transition:
+                                 micro_action.add_transition(transition),
+                              component,
+                              MicroAction())
+                       for component in components]
+        for transition in transitions:
+            transition = self.__complete_transition(transition,
+                                                    partial_state,
+                                                    size_threshold)
+            partial_state = transition.update_partial_state(partial_state)
+        return transitions
 
     @staticmethod
     def __order_micro_actions(preconditions: List[MicroAction],
@@ -189,12 +194,16 @@ class Action:
         graph = reduce(Graph.add_edge,
                        zip(preconditions, preconditions[1:]),
                        graph)
+        # Adding transitions' order
+        graph = reduce(Graph.add_edge,
+                       zip(transitions, transitions[1:]),
+                       graph)
         
         # Postponing the modification of state variables until the point
         # we need their old values.
         graph = reduce(Graph.add_edge,
                        ((source, destination)
-                        for source in graph.vertices
+                        for source in preconditions
                         for destination in transitions
                         if source.is_threatened_by(destination)),
                        graph)
@@ -228,8 +237,7 @@ class Action:
                 return True
             if action1.args.isdisjoint(action2.args) or not size_threshold:
                 return False
-            conditions = set(c.condition for c in action1.preconditions)
-            conditions.update(c.condition for c in action2.preconditions)
+            conditions = action1.preconditions.union(action2.preconditions)
             args = action1.args.union(action2.args)
             estimate = self.__count_estimate(args, conditions)
             return estimate < size_threshold
@@ -293,19 +301,10 @@ class Action:
 
         return self
 
-    def __propagate_conditions(self, conditions: List[Literal]):
-        for condition in conditions:
-            condition = MicroAction().add_precondition(Condition(condition))
-            for micro_action in self.__micro_actions:
-                if condition.args.issubset(micro_action.args):
-                    micro_action.merge(condition)
-                if condition.is_threatened_by(micro_action):
-                    break
-
     def __complete_transition(self,
                               transition: MicroAction,
-                              conditions: List[Condition],
-                              size_threshold: int) -> Transition:
+                              conditions: Iterable[Condition],
+                              size_threshold: int) -> MicroAction:
         """Add related conditions to the given Transition
 
         Find transition's related conditions and add them to it as much
@@ -313,36 +312,35 @@ class Action:
         the transition is less than the given threshold.
         """
 
-        conditions = [(MicroAction().add_precondition(Condition(condition)),
-                       condition)
-                      for condition in conditions]
-        added_conditions = []
+        conditions = [MicroAction().add_precondition(c) for c in conditions]
+        added_conditions = set()
         args = transition.args
 
         level_off = False
         while not level_off:
             level_off = True
             best = (float('inf'), None, None)
-            for (micro_action, condition) in conditions:
-                if args.isdisjoint(micro_action.args):
+            for condition in conditions:
+                if args.isdisjoint(condition.args):
                     continue
-                if args.issuperset(micro_action.args):
-                    best = (0, micro_action, condition)
+                if args.issuperset(condition.args):
+                    best = (0, condition)
                     break
-                estimate = (self
-                            .__count_estimate(args.union(micro_action.args),
-                                              added_conditions + [condition]))
+                new_candidate = added_conditions.union(condition.preconditions)
+                estimate = self.__count_estimate(args.union(condition.args),
+                                                 new_candidate)
                 if estimate < best[0]:
-                    best = (estimate, micro_action, condition)
+                    best = (estimate, condition)
             if (   best[0] < size_threshold
                 or best[0] <= self.__count_estimate(args, added_conditions)):
                 transition = transition.merge(best[1])
-                added_conditions += [best[2]]
+                added_conditions.update(best[1].preconditions)
                 level_off = False
-                conditions.remove((best[1], best[2]))
+                conditions.remove(best[1])
                 args.update(best[1].args)
         return transition
     
-    def __count_estimate(self, args, conditions):
+    def __count_estimate(self, args, conditions: Iterable[Condition]):
         args = [TypedObject(arg, self.__args[arg]) for arg in args]
+        conditions = [c.condition for c in conditions]
         return self.__knowledge.count_estimate(args, conditions)

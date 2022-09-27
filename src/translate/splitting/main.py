@@ -8,7 +8,7 @@ from .action import Action
 from .task_to_string import output
 
 
-SIZE_THRESHOLD = 100000
+SIZE_THRESHOLD = 50000
 
 
 def main(task: Task):
