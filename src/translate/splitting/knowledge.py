@@ -7,7 +7,8 @@ import normalize
 from invariant_finder import find_invariants
 from invariants import Invariant
 from pddl import Task, Literal, Atom, Assign, Effect
-from pddl.conditions import ConstantCondition, JunctorCondition
+from pddl.conditions import Conjunction, ConstantCondition
+from pddl.conditions import JunctorCondition, Truth
 from pddl.pddl_types import TypedObject
 
 from .common import Predicate, get_conditions
@@ -44,7 +45,7 @@ class Knowledge:
         self.__set_statics(task)
         self.__set_static_function()
         self.__extract_knowledge(task)
-        self.__eliminate_universal_quantifier_effects(task)
+        self.__normalize(task)
 
     @property
     def default_objects(self):
@@ -220,6 +221,31 @@ class Knowledge:
             while type_name:
                 objects.setdefault(type_name, []).append(obj)
                 type_name = parents.get(type_name, None)
+
+    def __normalize(self, task: Task) -> Task:
+        new_actions = []
+        for action in task.actions:
+            action = self.__move_single_condition_to_precondition(action)
+            if action is not None:
+                new_actions.append(action)
+        task.actions = new_actions
+        return self.__eliminate_universal_quantifier_effects(task)
+
+    @staticmethod
+    def __move_single_condition_to_precondition(action):
+        if len(action.effects) == 0:
+            return None
+        condition = action.effects[0].condition
+        if isinstance(condition, Truth):
+            return action
+        for effect in action.effects[1:]:
+            if effect.condition != condition:
+                return action
+        action.precondition = (Conjunction([action.precondition, condition])
+                               .simplified())
+        for effect in action.effects:
+            effect.condition = Truth()
+        return action
 
     def __eliminate_universal_quantifier_effects(self, task: Task):
         def instantiate(condition, mapping):
