@@ -238,9 +238,13 @@ class Action:
             if action1.args.isdisjoint(action2.args) or not size_threshold:
                 return False
             conditions = action1.preconditions.union(action2.preconditions)
+            estimate1 = self.__count_estimate(action1.args,
+                                              action1.preconditions)
+            estimate2 = self.__count_estimate(action2.args,
+                                              action2.preconditions)
             args = action1.args.union(action2.args)
             estimate = self.__count_estimate(args, conditions)
-            return estimate < size_threshold
+            return estimate <= max(size_threshold, estimate1 + estimate2)
 
         processed = [micro_actions[0]]
         for micro_action in micro_actions[1:]:
@@ -311,35 +315,37 @@ class Action:
         as the upper-bound estimate of the of grounded actions count for
         the transition is less than the given threshold.
         """
+        def get_conditions(conditions, arg: set):
+            return [c for c in conditions if arg.issuperset(c.args)]
 
         conditions = [MicroAction().add_precondition(c) for c in conditions]
-        added_conditions = set()
         args = transition.args
+        threshold = max(size_threshold,
+                        self.__count_estimate(args, get_conditions(args)))
 
         level_off = False
         while not level_off:
             level_off = True
-            best = (float('inf'), None, None)
+            best = (threshold + 1, None)
             for condition in conditions:
-                if args.isdisjoint(condition.args):
+                if (   args.isdisjoint(condition.args)
+                    or args.issuperset(condition.args)):
                     continue
-                if args.issuperset(condition.args):
-                    best = (0, condition)
-                    break
-                new_candidate = added_conditions.union(condition.preconditions)
-                estimate = self.__count_estimate(args.union(condition.args),
-                                                 new_candidate)
-                if estimate < best[0]:
-                    best = (estimate, condition)
-            if (   best[0] < size_threshold
-                or best[0] <= self.__count_estimate(args, added_conditions)):
-                transition = transition.merge(best[1])
-                added_conditions.update(best[1].preconditions)
+                new_args = args.union(condition.args)
+                estimate = self.__count_estimate(new_args,
+                                                 get_conditions(conditions,
+                                                                new_args))
+                if estimate <= best[0]:
+                    best = (estimate, new_args)
+            if best[0] <= threshold:
+                for condition in get_conditions(conditions, best[1]):
+                    transition = transition.merge(condition)
+                    conditions.remove(condition)
                 level_off = False
-                conditions.remove(best[1])
-                args.update(best[1].args)
+                args = new_args
+                threshold = max(size_threshold, best[0])
         return transition
-    
+
     def __count_estimate(self, args, conditions: Iterable[Condition]):
         args = [TypedObject(arg, self.__args[arg]) for arg in args]
         conditions = [c.condition for c in conditions]
