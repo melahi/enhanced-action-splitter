@@ -315,26 +315,30 @@ class Action:
         as the upper-bound estimate of the of grounded actions count for
         the transition is less than the given threshold.
         """
-        def get_conditions(conditions, arg: set):
-            return [c for c in conditions if arg.issuperset(c.args)]
+        def get_conditions(conditions: List[MicroAction], args: set):
+            return [c for c in conditions if args.issuperset(c.args)]
+        def count_estimate(conditions: List[MicroAction], args: set):
+            conditions = set().union(*(c.preconditions
+                                       for c in get_conditions(conditions,
+                                                               args)))
+            return self.__count_estimate(args, conditions)
+
+
 
         conditions = [MicroAction().add_precondition(c) for c in conditions]
         args = transition.args
-        threshold = max(size_threshold,
-                        self.__count_estimate(args, get_conditions(args)))
+        threshold = max(size_threshold, count_estimate(conditions, args))
 
         level_off = False
         while not level_off:
             level_off = True
-            best = (threshold + 1, None)
+            best = (float('inf'), None)
             for condition in conditions:
                 if (   args.isdisjoint(condition.args)
                     or args.issuperset(condition.args)):
                     continue
                 new_args = args.union(condition.args)
-                estimate = self.__count_estimate(new_args,
-                                                 get_conditions(conditions,
-                                                                new_args))
+                estimate = count_estimate(conditions, new_args)
                 if estimate <= best[0]:
                     best = (estimate, new_args)
             if best[0] <= threshold:
