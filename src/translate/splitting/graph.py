@@ -1,3 +1,4 @@
+from sqlite3 import complete_statement
 from typing import List, Tuple, Generic, TypeVar
 
 
@@ -30,15 +31,21 @@ class Graph(Generic[Vertex]):
 
     def topological_order(self, vertex_priority=None) -> List[Vertex]:
         def dfs(vertex, visited, order):
-            visited.append(vertex)
-            neighbors = self.__graph[vertex]
-            if vertex_priority:
-                neighbors.sort(key=vertex_priority)
-            for neighbor in neighbors:
-                if neighbor in visited:
+            stack = [(False, vertex)]
+            while stack:
+                completed, vertex = stack.pop()
+                if completed:
+                    order = [vertex] + order
                     continue
-                visited, order = dfs(neighbor, visited, order)
-            return visited, [vertex] + order
+                if vertex in visited:
+                    continue
+                visited.append(vertex)
+                neighbors = self.__graph[vertex]
+                if vertex_priority:
+                    neighbors.sort(key=vertex_priority, reverse=True)
+                stack.append((True, vertex))
+                stack.extend([(False, n) for n in neighbors])
+            return visited, order
 
         order = []
         visited = []
