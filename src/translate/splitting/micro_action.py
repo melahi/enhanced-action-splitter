@@ -2,6 +2,7 @@ from itertools import chain
 from typing import List, Set
 
 from pddl.conditions import Literal
+from pddl.pddl_types import TypedObject
 
 from .common import literal_to_string
 
@@ -27,7 +28,11 @@ class AtomicActionPart:
         if literal1.predicate != literal2.predicate:
             return False
         for arg1, arg2 in zip(literal1.args, literal2.args):
-            if str(arg1).startswith("?") or str(arg2).startswith("?"):
+            if isinstance(arg1, TypedObject):
+                arg1 = arg1.name
+            if isinstance(arg2, TypedObject):
+                arg2 = arg2.name
+            if arg1.startswith("?") or arg2.startswith("?"):
                 continue
             if arg1 != arg2:
                 return False
