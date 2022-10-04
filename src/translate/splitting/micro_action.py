@@ -236,8 +236,10 @@ class MicroAction:
             new_partial_state.update(Condition(e) for e in transition.effects)
         return new_partial_state
 
-    def to_string(self, action_name, args_types, indent) -> str:
-        args = ' '.join([f"{arg} - {args_types[arg]}" for arg in self.__args])
+    def to_string(self, action_name, args, indent) -> str:
+        args = ' '.join([f"{a.name} - {a.type_name}"
+                         for a in args
+                         if a.name in self.__args])
         preconditions = f"{indent}\t\t(and\n"
         for precondition in self.__preconditions:
             preconditions += precondition.to_string(indent + "\t\t\t")

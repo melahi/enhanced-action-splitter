@@ -1,4 +1,3 @@
-from sqlite3 import complete_statement
 from typing import List, Tuple, Generic, TypeVar
 
 

@@ -30,7 +30,7 @@ class Action:
         self.__new_objects = []
         self.__new_predicates = []
         self.__name = action.name
-        self.__args = {p.name: p.type_name for p in action.parameters}
+        self.__args = action.parameters
         self.__micro_actions = self.__split_action(action, size_threshold)
         self.__chain_micro_actions(knowledge.default_objects)
 
@@ -285,22 +285,23 @@ class Action:
                             [self.__micro_actions[i]])
 
         # Handling shared arguments
-        shared_arguments = {arg: [] for arg in self.__args}
+        shared_arguments = {arg.name: [] for arg in self.__args}
         argument_predicate = lambda argument: f"{self.__name}_{argument[1:]}"
         for micro_action in self.__micro_actions:
             for arg in micro_action.args:
                 shared_arguments[arg].append(micro_action)
-        for arg, shared_micro_actions in shared_arguments.items():
+        for arg_name, shared_micro_actions in shared_arguments.items():
             if len(shared_micro_actions) < 2:
                 continue
-            arg_type = self.__args[arg]
-            self.__new_predicates.append((argument_predicate(arg),
-                                          [TypedObject(arg, arg_type)],
-                                          [default_values[arg_type]]))
-            use_predicate((argument_predicate(arg), (default_values[arg_type],)),
+            arg = next(a for a in self.__args if a.name == arg_name)
+            self.__new_predicates.append((argument_predicate(arg.name),
+                                          [arg],
+                                          [default_values[arg.type_name]]))
+            use_predicate((argument_predicate(arg.name),
+                           (default_values[arg.type_name],)),
                           shared_micro_actions[-1],
                           [shared_micro_actions[0]])
-            use_predicate((argument_predicate(arg), (arg,)),
+            use_predicate((argument_predicate(arg.name), (arg.name,)),
                           shared_micro_actions[0], shared_micro_actions[1:])
 
         return self
@@ -322,8 +323,6 @@ class Action:
                                        for c in get_conditions(conditions,
                                                                args)))
             return self.__count_estimate(args, conditions)
-
-
 
         conditions = [MicroAction().add_precondition(c) for c in conditions]
         args = transition.args
@@ -351,6 +350,6 @@ class Action:
         return transition
 
     def __count_estimate(self, args, conditions: Iterable[Condition]):
-        args = [TypedObject(arg, self.__args[arg]) for arg in args]
+        args = [a for a in self.__args if a.name in args]
         conditions = [c.condition for c in conditions]
         return self.__knowledge.count_estimate(args, conditions)
