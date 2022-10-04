@@ -61,7 +61,9 @@ def __domain_to_string(task: Task) -> str:
     constants  = [f"{' '.join(objects[t])} - {t}" for t in objects if t]
     constants += [f"{' '.join(objects[t])}" for t in objects if not t]
     constants = "\n            ".join(constants)
-    requirements = " ".join(task.requirements.requirements)
+    requirements = " ".join(r
+                            for r in task.requirements.requirements
+                            if r.lower() != ":action-costs")
     def predicate_str(predicate):
         arguments = [f"{a.name} - {a.type_name}" if a.type_name else a.name
                      for a in predicate.arguments]
