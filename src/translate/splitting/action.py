@@ -1,4 +1,4 @@
-from typing import Iterable, List, Set
+from typing import Dict, Iterable, List, Set
 from itertools import chain, permutations
 from functools import reduce
 
@@ -31,7 +31,7 @@ class Action:
         self.__new_predicates = []
         self.__name = action.name
         self.__args = action.parameters
-        self.__micro_actions = self.__split_action(action, size_threshold)
+        self.__micro_actions = self.__split_action(action)
         self.__chain_micro_actions(knowledge.default_objects)
 
     @property
@@ -50,20 +50,16 @@ class Action:
         return "\n".join(m.to_string(f"{self.__name}_{i}", self.__args, indent)
                          for i, m in enumerate(self.__micro_actions))
 
-    def __split_action(self, action, size_threshold) -> List[MicroAction]:
+    def __split_action(self, action) -> List[MicroAction]:
         preconditions = get_conditions(action.precondition)
         parameters = [parameter.name for parameter in action.parameters]
-        influential_order = self.__order_variables(parameters, preconditions)
+        influential_order = self.__influential_order(parameters, preconditions)
         conditions = self.__order_conditions(preconditions, influential_order)
-        conditions = [Condition(c) for c in conditions]
-        conditions = [MicroAction().add_precondition(c) for c in conditions]
-        conditions = self.__merge_micro_actions(conditions, size_threshold)
         transitions = self.__get_transitions(action.effects)
         preconditions = {Condition(p) for p in preconditions}
-        transitions = self.__prepare_transitions(preconditions,
-                                                 transitions,
-                                                 size_threshold)
-        micro_actions = self.__order_micro_actions(conditions, transitions)
+        transitions = self.__prepare_transitions(preconditions, transitions)
+        micro_actions = conditions + transitions
+        # micro_actions = self.__order_micro_actions(conditions, transitions)
         micro_actions = self.__merge_micro_actions(micro_actions, 0)
         return micro_actions
 
@@ -101,12 +97,18 @@ class Action:
                  .update(transition
                          .check_delete_effect(variables, conditions, effect)))
             if covered_variables != variables:
-                # print("WARNING: Not all variables are covered by:", effect)
-                # print("         We fix it by adding a (redundant) transition")
+                # Not all variables are covered by the current transitions;
+                # it might be the case when we have state variables that just
+                # falsify their values. Other probability might be that the
+                # logical consequence implementation might not be precise.
+                # In any case we fix it by adding a (probably redundant)
+                # transition.
                 transitions.append(Transition(conditions, effect, set()))
         return transitions
 
-    def __order_variables(self, variables: List[str], conditions) -> List[str]:
+    def __influential_order(self,
+                            variables: List[str],
+                            conditions: List[Literal]) -> List[str]:
         """Orders the vertices based on their influential relations"""
 
         # Filter out any condition except positive literals
@@ -122,34 +124,63 @@ class Action:
 
         return graph.topological_order()
 
-    @staticmethod
-    def __order_conditions(conditions: List[Literal], ordered_variables):
-        appearance_rank = {variable: float('inf')
-                           for variable in ordered_variables}
-        influential_rank = {variable: i
-                            for i, variable in enumerate(ordered_variables)}
-        def get_ranking(condition):
-            ranking = [(appearance_rank[arg], influential_rank[arg])
-                       for arg in condition.args if arg.startswith("?")]
-            ranking.sort()
-            return ranking
-        size = len(conditions)
-        for i in range(size):
-            best_ranking = get_ranking(conditions[i])
-            for j in range(i + 1, size):
-                ranking = get_ranking(conditions[j])
-                if ranking < best_ranking:
-                    best_ranking = ranking
-                    conditions[i], conditions[j] = conditions[j], conditions[i]
-            appearance_rank.update({arg: min(i, appearance_rank[arg])
-                                    for arg in conditions[i].args
-                                    if arg.startswith("?")})
-        return conditions
+    def __order_conditions(self,
+                           conditions: List[Literal],
+                           influential_order: List[str]) -> List[MicroAction]:
+        def get_args(literal: Literal):
+            return [a.name if isinstance(a, TypedObject) else a
+                    for a in literal.args]
+        def get_variables(literal: Literal):
+            return [a for a in get_args(literal) if a.startswith("?")]
+        variable_rank = {v: i for i, v in enumerate(influential_order)}
+        def literal_rank(literal: Literal):
+            rank = [variable_rank[v] for v in get_variables(literal)]
+            rank.sort()
+            return rank
+
+        result: List[MicroAction] = []
+        conditions = sorted(conditions, key=literal_rank)
+        determined_variables = set()
+        dependencies: Dict[str, List[Set[str]]] = {}
+        for condition in conditions:
+            if not isinstance(condition, Atom):
+                continue
+            predicate = (condition.predicate, get_args(condition))
+            variables = set(get_variables(condition))
+            for arg in self.__knowledge.omittable_arguments(predicate):
+                dependency = variables - {arg}
+                if arg in variables and dependency:
+                    dependencies.setdefault(arg, []).append(dependency)
+        def select_condition(condition: Literal):
+            determined_variables.update(get_variables(condition))
+            for variable in list(dependencies.keys()):
+                if variable in determined_variables:
+                    del dependencies[variable]
+                    continue
+                for dependency in dependencies[variable]:
+                    if determined_variables.issuperset(dependency):
+                        determined_variables.add(variable)
+                        del dependencies[variable]
+                        break
+            conditions.remove(condition)
+            result[-1].add_precondition(Condition(condition))
+
+        while conditions:
+            result.append(MicroAction())
+            selected = conditions[0]
+            while selected is not None:
+                select_condition(selected)
+                for condition in conditions:
+                    if determined_variables.issuperset(get_variables(condition)):
+                        selected = condition
+                        break
+                else:
+                    selected = None
+        return result
 
     def __prepare_transitions(self,
                               partial_state: Set[Condition],
-                              transitions: List[Transition],
-                              size_threshold: int) -> List[MicroAction]:
+                              transitions: List[Transition]) -> List[MicroAction]:
         """Prepares the ordered micro-action list of transitions
 
         To complete the actions' definition, we need to specify its
@@ -181,8 +212,7 @@ class Action:
                        for component in components]
         for transition in transitions:
             transition = self.__complete_transition(transition,
-                                                    partial_state,
-                                                    size_threshold)
+                                                    partial_state)
             partial_state = transition.update_partial_state(partial_state)
         return transitions
 
@@ -308,45 +338,29 @@ class Action:
 
     def __complete_transition(self,
                               transition: MicroAction,
-                              conditions: Iterable[Condition],
-                              size_threshold: int) -> MicroAction:
+                              conditions: Iterable[Condition]) -> MicroAction:
         """Add related conditions to the given Transition
 
-        Find transition's related conditions and add them to it as much
-        as the upper-bound estimate of the of grounded actions count for
-        the transition is less than the given threshold.
+        Find transition's related conditions and add them to it. Related
+        conditions are
+        1. static conditions overlapped with transition's
+           arguments, 
+        2. conditions with the arguments which are the subset
+           of the transition's arguments.
         """
-        def get_conditions(conditions: List[MicroAction], args: set):
-            return [c for c in conditions if args.issuperset(c.args)]
-        def count_estimate(conditions: List[MicroAction], args: set):
-            conditions = set().union(*(c.preconditions
-                                       for c in get_conditions(conditions,
-                                                               args)))
-            return self.__count_estimate(args, conditions)
-
-        conditions = [MicroAction().add_precondition(c) for c in conditions]
-        args = transition.args
-        threshold = max(size_threshold, count_estimate(conditions, args))
-
+        conditions = conditions.copy()
         level_off = False
         while not level_off:
             level_off = True
-            best = (float('inf'), None)
             for condition in conditions:
-                if (   args.isdisjoint(condition.args)
-                    or args.issuperset(condition.args)):
-                    continue
-                new_args = args.union(condition.args)
-                estimate = count_estimate(conditions, new_args)
-                if estimate <= best[0]:
-                    best = (estimate, new_args)
-            if best[0] <= threshold:
-                for condition in get_conditions(conditions, best[1]):
-                    transition = transition.merge(condition)
+                if (   transition.args.issuperset(condition.find_args())
+                    or self.__knowledge.is_static(condition
+                                                  .condition
+                                                  .predicate)):
+                    transition.merge(MicroAction().add_precondition(condition))
                     conditions.remove(condition)
-                level_off = False
-                args = new_args
-                threshold = max(size_threshold, best[0])
+                    level_off = False
+                    break
         return transition
 
     def __count_estimate(self, args, conditions: Iterable[Condition]):

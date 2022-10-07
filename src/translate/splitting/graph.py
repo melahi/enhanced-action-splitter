@@ -28,6 +28,9 @@ class Graph(Generic[Vertex]):
         self.__graph.setdefault(source, []).append(destination)
         return self
 
+    def neighbors(self, vertex: Vertex):
+        return self.__graph[vertex].copy()
+
     def topological_order(self, vertex_priority=None) -> List[Vertex]:
         def dfs(vertex, visited, order):
             stack = [(False, vertex)]

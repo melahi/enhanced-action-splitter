@@ -21,7 +21,9 @@ class AtomicActionPart:
 
     @staticmethod
     def _find_args_in_literal(literal: Literal):
-        return {arg for arg in literal.args if str(arg).startswith("?")}
+        args = [a.name if isinstance(a, TypedObject) else a
+                for a in literal.args]
+        return {a for a in args if a.startswith("?")}
 
     @staticmethod
     def _are_possibly_the_same(literal1: Literal, literal2: Literal) -> bool:

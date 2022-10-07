@@ -1,10 +1,10 @@
-from typing import Tuple, Iterable
+from typing import Tuple, List
 from itertools import chain
 
 from pddl import Literal, Conjunction, Truth, TypedObject
 
 
-Predicate = Tuple[str, Iterable[str]]  # predicate type
+Predicate = Tuple[str, List[str]]  # predicate type
 
 
 def literal_to_string(literal: Literal) -> str:

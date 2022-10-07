@@ -51,6 +51,13 @@ class Knowledge:
     def default_objects(self):
         return {t: self.__objects[t][0] for t in self.__objects}
 
+    def is_static(self, predicate_name: str):
+        return predicate_name in self.__statics
+
+    def omittable_arguments(self, predicate: Predicate) -> List[str]:
+        return [predicate[1][o]
+                for o in self.__omitted_positions.get(predicate[0], [])]
+
     def get_relations(self, predicate: Predicate) -> List[Tuple[str, str]]:
         is_constant = lambda arg: not str(arg).startswith("?")
         relations = []
