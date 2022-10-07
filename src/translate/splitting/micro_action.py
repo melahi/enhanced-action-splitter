@@ -133,16 +133,18 @@ class Transition(AtomicActionPart):
             for condition in self.__conditions:
                 if self._are_possibly_the_same(effect, condition):
                     return True
-            # Delete effect should not be after the add effect.
-            # It somehow might be confusing because the interpretation
-            # is like our negative effect is threatened by another
-            # positive effect, so the positive effect should be placed
-            # after the negative one.
-            if not effect.negated:
-                for effect2 in self.__effects:
-                    if effect2.negated:
-                        if self._are_possibly_the_same(effect, effect2):
-                            return True
+
+        # Delete effect should not be after the add effect.
+        # It somehow might be confusing because the interpretation
+        # is like our negative effect is threatened by another
+        # positive effect, so the positive effect should be placed
+        # after the negative one.
+        if (    len(self.__effects) == 1
+            and self.__effects[0].negated
+            and len(transition.__effects) == 1
+            and not transition.__effects[0].negated):
+            return True
+
         return False
 
     def to_string(self, indent) -> str:
