@@ -353,10 +353,11 @@ class Action:
         while not level_off:
             level_off = True
             for condition in conditions:
-                if (   transition.args.issuperset(condition.find_args())
-                    or self.__knowledge.is_static(condition
-                                                  .condition
-                                                  .predicate)):
+                args = condition.find_args()
+                name = condition.condition.predicate
+                if (transition.args.issuperset(args)
+                    or ((not transition.args.isdisjoint(args))
+                        and self.__knowledge.is_static(name))):
                     transition.merge(MicroAction().add_precondition(condition))
                     conditions.remove(condition)
                     level_off = False
