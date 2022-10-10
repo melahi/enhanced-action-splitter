@@ -65,6 +65,8 @@ class Action:
         micro_actions = conditions + transitions
         micro_actions = self.__order_micro_actions(conditions, transitions)
         micro_actions = self.__merge_micro_actions(micro_actions, 0)
+        micro_actions = self.__complete_micro_actions(micro_actions,
+                                                      preconditions)
         return micro_actions
 
     def __get_transitions(self, raw_effects):
@@ -368,6 +370,19 @@ class Action:
                     level_off = False
                     break
         return transition
+
+    def __complete_micro_actions(self,
+                                 micro_actions: List[MicroAction],
+                                 partial_state: Iterable[Condition]):
+        partial_state = partial_state.copy()
+        for micro_action in micro_actions:
+            for condition in partial_state:
+                if micro_action.args.issuperset(condition.find_args()):
+                    micro_action.add_precondition(condition)
+            partial_state = (micro_action
+                             .update_partial_state(partial_state,
+                                                   self.__distinct_args))
+        return micro_actions
 
     def __count_estimate(self, args, conditions: Iterable[Condition]):
         args = [a for a in self.__args if a.name in args]
