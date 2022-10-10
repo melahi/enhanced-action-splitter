@@ -1,5 +1,5 @@
 from itertools import chain
-from typing import List, Set
+from typing import List, Set, Dict
 
 from pddl.conditions import Literal
 from pddl.pddl_types import TypedObject
@@ -13,7 +13,9 @@ class AtomicActionPart:
     def find_args(self):
         raise NotImplementedError
 
-    def is_threatened_by(self, transition: 'Transition') -> bool:
+    def is_threatened_by(self,
+                         transition: 'Transition',
+                         distinct_args: Dict[str, List[str]]) -> bool:
         raise NotImplementedError
 
     def to_string(self, indent) -> str:
@@ -26,7 +28,9 @@ class AtomicActionPart:
         return {a for a in args if a.startswith("?")}
 
     @staticmethod
-    def _are_possibly_the_same(literal1: Literal, literal2: Literal) -> bool:
+    def _are_possibly_the_same(literal1: Literal,
+                               literal2: Literal,
+                               distinct_args: Dict[str, List[str]]) -> bool:
         if literal1.predicate != literal2.predicate:
             return False
         for arg1, arg2 in zip(literal1.args, literal2.args):
@@ -34,6 +38,8 @@ class AtomicActionPart:
                 arg1 = arg1.name
             if isinstance(arg2, TypedObject):
                 arg2 = arg2.name
+            if arg2 in distinct_args.get(arg1, []):
+                return False
             if arg1.startswith("?") or arg2.startswith("?"):
                 continue
             if arg1 != arg2:
@@ -60,11 +66,15 @@ class Condition(AtomicActionPart):
             return self._find_args_in_literal(self.__condition)
         raise NotImplementedError("Other Conditions are not supported!")
 
-    def is_threatened_by(self, transition: 'Transition') -> bool:
+    def is_threatened_by(self,
+                         transition: 'Transition',
+                         distinct_args: Dict[str, List[str]]) -> bool:
         for effect in transition.effects:
             if self.__condition.negated == effect.negated:
                 continue
-            if self._are_possibly_the_same(self.__condition, effect):
+            if self._are_possibly_the_same(self.__condition,
+                                           effect,
+                                           distinct_args):
                 return True
         return False
 
@@ -128,10 +138,14 @@ class Transition(AtomicActionPart):
     def has_condition(self):
         return len(self.__conditions) != 0
 
-    def is_threatened_by(self, transition: 'Transition') -> bool:
+    def is_threatened_by(self,
+                         transition: 'Transition',
+                         distinct_args: Dict[str, List[str]]) -> bool:
         for effect in transition.effects:
             for condition in self.__conditions:
-                if self._are_possibly_the_same(effect, condition):
+                if self._are_possibly_the_same(effect,
+                                               condition,
+                                               distinct_args):
                     return True
 
         # Delete effect should not be after the add effect.
@@ -204,9 +218,11 @@ class MicroAction:
         self.__args.update(transition.find_args())
         return self
 
-    def is_threatened_by(self, other: 'MicroAction') -> bool:
+    def is_threatened_by(self,
+                         other: 'MicroAction',
+                         distinct_args: Dict[str, List[str]]) -> bool:
         parts = list(self.__preconditions) + self.__transitions
-        return any(part.is_threatened_by(other_transition)
+        return any(part.is_threatened_by(other_transition, distinct_args)
                    for other_transition in other.__transitions 
                    for part in parts)
 
@@ -225,12 +241,13 @@ class MicroAction:
         return self
 
     def update_partial_state(self,
-                             partial_state: Set[Condition]) -> Set[Condition]:
+                             partial_state: Set[Condition],
+                             distinct_args: Dict[str, List[str]]) -> Set[Condition]:
         partial_state.update(self.__preconditions)
         new_partial_state = set()
         for condition in partial_state:
             for transition in self.__transitions:
-                if condition.is_threatened_by(transition):
+                if condition.is_threatened_by(transition, distinct_args):
                     break
             else:
                 new_partial_state.add(condition)

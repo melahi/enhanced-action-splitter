@@ -214,7 +214,7 @@ class Action:
         # Constructing the ordered graph
         graph = {transition: [] for transition in transitions}
         for transition1, transition2 in permutations(transitions, 2):
-            if transition1.is_threatened_by(transition2):
+            if transition1.is_threatened_by(transition2, self.__distinct_args):
                 graph[transition1].append(transition2)
 
         components = get_sccs_adjacency_dict(graph)
@@ -231,8 +231,8 @@ class Action:
             transition = self.__complete_transition(transition, statics)
         return transitions
 
-    @staticmethod
-    def __order_micro_actions(preconditions: List[MicroAction],
+    def __order_micro_actions(self,
+                              preconditions: List[MicroAction],
                               transitions: List[MicroAction]):
         graph = Graph(preconditions + transitions)
         # Adding preconditions' order
@@ -243,7 +243,7 @@ class Action:
         graph = reduce(Graph.add_edge,
                        [(t1, t2)
                         for t1, t2 in permutations(transitions, 2)
-                        if t1.is_threatened_by(t2)],
+                        if t1.is_threatened_by(t2, self.__distinct_args)],
                        graph)
 
         # Postponing the modification of state variables until the point
@@ -251,7 +251,8 @@ class Action:
         # fixed.
         for transition in transitions:
             for precondition in reversed(preconditions):
-                if (   precondition.is_threatened_by(transition)
+                if (   precondition.is_threatened_by(transition,
+                                                     self.__distinct_args)
                     or not precondition.args.isdisjoint(transition.args)):
                     graph.add_edge((precondition, transition))
                     break
