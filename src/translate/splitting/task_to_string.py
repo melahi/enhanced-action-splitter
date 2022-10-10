@@ -23,7 +23,9 @@ def __update_task(task: Task, actions: List[Action]) -> Task:
         task.predicates.append(pddl.Predicate(predicate_name, args_types))
         init = Atom(predicate_name, initial_value)
         task.init.append(init)
-        task.goal = Conjunction((task.goal, init)).simplified()
+        # task.goal = Conjunction((task.goal, init)).simplified()
+        if predicate_name == "start_procedure":
+            task.goal = Conjunction((task.goal, init)).simplified()
         return task
 
     task.types.append(STEP_TYPE)

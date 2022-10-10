@@ -1,5 +1,5 @@
 from typing import Dict, Iterable, List, Set
-from itertools import chain, permutations
+from itertools import chain, permutations, product
 from functools import reduce
 
 from sccs import get_sccs_adjacency_dict
@@ -31,7 +31,7 @@ class Action:
         self.__new_predicates = []
         self.__name = action.name
         self.__args = action.parameters
-        self.__micro_actions = self.__split_action(action)
+        self.__micro_actions = self.__split_action(action, size_threshold)
         self.__chain_micro_actions(knowledge.default_objects)
 
     @property
@@ -50,16 +50,18 @@ class Action:
         return "\n".join(m.to_string(f"{self.__name}_{i}", self.__args, indent)
                          for i, m in enumerate(self.__micro_actions))
 
-    def __split_action(self, action) -> List[MicroAction]:
+    def __split_action(self, action, size_threshold) -> List[MicroAction]:
         preconditions = get_conditions(action.precondition)
         parameters = [parameter.name for parameter in action.parameters]
         influential_order = self.__influential_order(parameters, preconditions)
-        conditions = self.__order_conditions(preconditions, influential_order)
+        conditions = self.__order_conditions(preconditions,
+                                             influential_order,
+                                             size_threshold)
         transitions = self.__get_transitions(action.effects)
         preconditions = {Condition(p) for p in preconditions}
         transitions = self.__prepare_transitions(preconditions, transitions)
         micro_actions = conditions + transitions
-        # micro_actions = self.__order_micro_actions(conditions, transitions)
+        micro_actions = self.__order_micro_actions(conditions, transitions)
         micro_actions = self.__merge_micro_actions(micro_actions, 0)
         return micro_actions
 
@@ -126,7 +128,8 @@ class Action:
 
     def __order_conditions(self,
                            conditions: List[Literal],
-                           influential_order: List[str]) -> List[MicroAction]:
+                           influential_order: List[str],
+                           size_threshold: int) -> List[MicroAction]:
         def get_args(literal: Literal):
             return [a.name if isinstance(a, TypedObject) else a
                     for a in literal.args]
@@ -167,11 +170,20 @@ class Action:
 
         while conditions:
             result.append(MicroAction())
-            selected = conditions[0]
+            for condition in conditions:
+                if determined_variables.issuperset(get_variables(condition)):
+                    selected = condition
+                    break
+            else:
+                selected = conditions[0]
             while selected is not None:
                 select_condition(selected)
                 for condition in conditions:
-                    if determined_variables.issuperset(get_variables(condition)):
+                    condition_vars = get_variables(condition)
+                    vars = result[-1].args.union(condition_vars)
+                    if (    (  self.__count_estimate(vars, [])
+                             < size_threshold)
+                        and determined_variables.issuperset(condition_vars)):
                         selected = condition
                         break
                 else:
@@ -210,10 +222,11 @@ class Action:
                               component,
                               MicroAction())
                        for component in components]
+        statics = {c
+                   for c in partial_state
+                   if self.__knowledge.is_static(c.condition.predicate)}
         for transition in transitions:
-            transition = self.__complete_transition(transition,
-                                                    partial_state)
-            partial_state = transition.update_partial_state(partial_state)
+            transition = self.__complete_transition(transition, statics)
         return transitions
 
     @staticmethod
@@ -226,31 +239,20 @@ class Action:
                        graph)
         # Adding transitions' order
         graph = reduce(Graph.add_edge,
-                       zip(transitions, transitions[1:]),
-                       graph)
-        
-        # Postponing the modification of state variables until the point
-        # we need their old values.
-        graph = reduce(Graph.add_edge,
-                       ((source, destination)
-                        for source in preconditions
-                        for destination in transitions
-                        if source.is_threatened_by(destination)),
+                       [(t1, t2)
+                        for t1, t2 in permutations(transitions, 2)
+                        if t1.is_threatened_by(t2)],
                        graph)
 
-        # Performing the transitions after all their arguments have been fixed.
-        first_variable_appearance = {}
-        for index, precondition in enumerate(preconditions):
-            for arg in precondition.args:
-                if arg not in first_variable_appearance:
-                    first_variable_appearance[arg] = index
+        # Postponing the modification of state variables until the point
+        # we need their old values, and all of their arguments have been
+        # fixed.
         for transition in transitions:
-            last_index = -1
-            for arg in transition.args:
-                index = first_variable_appearance.get(arg, -1)
-                last_index = max(last_index, index)
-            if last_index != -1:
-                graph.add_edge((preconditions[last_index], transition))
+            for precondition in reversed(preconditions):
+                if (   precondition.is_threatened_by(transition)
+                    or not precondition.args.isdisjoint(transition.args)):
+                    graph.add_edge((precondition, transition))
+                    break
 
         def priority(micro_action: MicroAction) -> List[int]:
             return (  [2] * len(micro_action.transitions)
