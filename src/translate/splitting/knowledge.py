@@ -7,6 +7,7 @@ import normalize
 from invariant_finder import find_invariants
 from invariants import Invariant
 from pddl import Task, Literal, Atom, Assign, Effect
+import pddl
 from pddl.conditions import Conjunction, ConstantCondition
 from pddl.conditions import JunctorCondition, Truth
 from pddl.pddl_types import TypedObject
@@ -42,10 +43,13 @@ class Knowledge:
 
         self.__statics: Dict[str, pd.DataFrame] = dict() # Static relations
 
+        self.__type_parent: Dict[str, str] = dict() # Types' parent relation
+
         self.__set_statics(task)
         self.__set_static_function()
         self.__extract_knowledge(task)
         self.__normalize(task)
+        self.__set_hierarchy(task)
 
     @property
     def default_objects(self):
@@ -107,6 +111,19 @@ class Knowledge:
                 continue
             estimate_count *= len(self.__objects[arg.type_name])
         return estimate_count
+
+    def has_shared_elements(self, type1: str, type2: str) -> bool:
+        def is_ancestor(subject, object):
+            while object:
+                if subject == object:
+                    return True
+                if self.__type_parent[object] == object:
+                    object = None
+                else:
+                    object = self.__type_parent[object]
+            return False
+
+        return is_ancestor(type1, type2) or is_ancestor(type2, type1)
 
     def __extract_knowledge(self, task: Task):
         normalize.normalize(task)
@@ -332,3 +349,7 @@ class Knowledge:
                 if candidate.shape[0] == relation.shape[0]:
                     self.__omitted_positions.setdefault(name, []).append(i)
         return self
+
+    def __set_hierarchy(self, task: Task):
+        for pddl_type in task.types:
+            self.__type_parent[pddl_type.name] = pddl_type.basetype_name

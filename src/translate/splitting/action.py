@@ -1,5 +1,5 @@
 from typing import Dict, Iterable, List, Set
-from itertools import chain, permutations, product
+from itertools import chain, combinations, permutations
 from functools import reduce
 
 from sccs import get_sccs_adjacency_dict
@@ -31,6 +31,8 @@ class Action:
         self.__new_predicates = []
         self.__name = action.name
         self.__args = action.parameters
+        preconditions = get_conditions(action.precondition)
+        self.__distinct_args = self.__find_distinct_args(preconditions)
         self.__micro_actions = self.__split_action(action, size_threshold)
         self.__chain_micro_actions(knowledge.default_objects)
 
@@ -370,3 +372,25 @@ class Action:
         args = [a for a in self.__args if a.name in args]
         conditions = [c.condition for c in conditions]
         return self.__knowledge.count_estimate(args, conditions)
+
+    def __find_distinct_args(self, preconditions: List[Literal]):
+        distinct_args = {a.name: [] for a in self.__args}
+        def get_name(arg):
+            return arg.name if isinstance(arg, TypedObject) else arg
+        for precondition in preconditions:
+            if not isinstance(precondition, NegatedAtom):
+                continue
+            if precondition.predicate != "=":
+                continue
+            name1 = get_name(precondition.args[0])
+            name2 = get_name(precondition.args[1])
+            if name1 in distinct_args and name2 in distinct_args:
+                distinct_args[name1].append(name2)
+                distinct_args[name2].append(name1)
+
+        for arg1, arg2 in combinations(self.__args, 2):
+            type1, type2 = (arg1.type_name, arg2.type_name)
+            if not self.__knowledge.has_shared_elements(type1, type2):
+                distinct_args[arg1.name].append(arg2.name)
+                distinct_args[arg2.name].append(arg1.name)
+        return distinct_args
