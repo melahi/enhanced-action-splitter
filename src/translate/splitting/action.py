@@ -185,13 +185,17 @@ class Action:
                 current_size = new_size
                 if selected is not None:
                     select_condition(selected)
-                if not conditions:
-                    break
                 best = ((float('inf'), [float('inf')], [float('inf')]), None)
                 for condition in conditions:
+                    if (    result[-1].args
+                        and result[-1].args.isdisjoint(get_args(condition))):
+                        continue
                     key = get_literal_info(current_decisions, condition)
                     if key < best[0]:
                         best = (key, condition)
+                if best[1] is None:
+                    # Can't find any suitable condition
+                    break
                 new_decisions = get_decision(current_decisions, best[1])
                 new_args = result[-1].args.union(get_variables(best[1]))
                 new_size = self.__count_estimate(new_args, [])
