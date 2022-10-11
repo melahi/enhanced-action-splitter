@@ -139,59 +139,63 @@ class Action:
                     for a in literal.args]
         def get_variables(literal: Literal):
             return [a for a in get_args(literal) if a.startswith("?")]
-        variable_rank = {v: i for i, v in enumerate(influential_order)}
-        def literal_rank(literal: Literal):
-            rank = [variable_rank[v] for v in get_variables(literal)]
-            rank.sort()
-            return rank
+        influential_rank = {v: i for i, v in enumerate(influential_order)}
+        appearance_rank = {v: float('inf') for v in influential_order}
+        def get_omittable_args(literal: Literal):
+            predicate = (literal.predicate, get_args(literal))
+            return self.__knowledge.omittable_arguments(predicate)
+        def get_decision(current_decisions: Set[str], literal: Literal):
+            new_decisions = {v
+                             for v in get_variables(literal)
+                             if appearance_rank[v] == float('inf')}
+            best = current_decisions | new_decisions
+            for arg in get_omittable_args(literal):
+                candidate = (current_decisions | new_decisions) - {arg}
+                if len(best) > len(candidate):
+                    best = candidate
+            return best
+        def get_literal_info(current_decisions: Set[str], literal: Literal):
+            variables = get_variables(literal)
+            influential = sorted(influential_rank[v] for v in variables)
+            appearance = sorted(appearance_rank[v] for v in variables)
+            new_decisions = get_decision(current_decisions, literal)
+            return (len(new_decisions), appearance, influential)
 
         result: List[MicroAction] = []
-        conditions = sorted(conditions, key=literal_rank)
-        determined_variables = set()
-        dependencies: Dict[str, List[Set[str]]] = {}
-        for condition in conditions:
-            if not isinstance(condition, Atom):
-                continue
-            predicate = (condition.predicate, get_args(condition))
-            variables = set(get_variables(condition))
-            for arg in self.__knowledge.omittable_arguments(predicate):
-                dependency = variables - {arg}
-                if arg in variables and dependency:
-                    dependencies.setdefault(arg, []).append(dependency)
         def select_condition(condition: Literal):
-            determined_variables.update(get_variables(condition))
-            for variable in list(dependencies.keys()):
-                if variable in determined_variables:
-                    del dependencies[variable]
-                    continue
-                for dependency in dependencies[variable]:
-                    if determined_variables.issuperset(dependency):
-                        determined_variables.add(variable)
-                        del dependencies[variable]
-                        break
+            time = len(result) - 1
+            for variable in get_variables(condition):
+                appearance_rank[variable] = min(time,
+                                                appearance_rank[variable])
             conditions.remove(condition)
             result[-1].add_precondition(Condition(condition))
 
         while conditions:
             result.append(MicroAction())
-            for condition in conditions:
-                if determined_variables.issuperset(get_variables(condition)):
-                    selected = condition
+            current_decisions = set()
+            new_decisions = set()
+            current_size = 0
+            new_size = 0
+            selected = None
+            while (    (   len(new_decisions) <= len(current_decisions)
+                        or not current_decisions)
+                   and (   new_size < max(current_size, size_threshold)
+                        or not current_size)):
+                current_decisions = new_decisions
+                current_size = new_size
+                if selected is not None:
+                    select_condition(selected)
+                if not conditions:
                     break
-            else:
-                selected = conditions[0]
-            while selected is not None:
-                select_condition(selected)
+                best = ((float('inf'), [float('inf')], [float('inf')]), None)
                 for condition in conditions:
-                    condition_vars = get_variables(condition)
-                    vars = result[-1].args.union(condition_vars)
-                    if (    (  self.__count_estimate(vars, [])
-                             < size_threshold)
-                        and determined_variables.issuperset(condition_vars)):
-                        selected = condition
-                        break
-                else:
-                    selected = None
+                    key = get_literal_info(current_decisions, condition)
+                    if key < best[0]:
+                        best = (key, condition)
+                new_decisions = get_decision(current_decisions, best[1])
+                new_args = result[-1].args.union(get_variables(best[1]))
+                new_size = self.__count_estimate(new_args, [])
+                selected = best[1]
         return result
 
     def __prepare_transitions(self,
