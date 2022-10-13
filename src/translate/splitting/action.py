@@ -1,6 +1,7 @@
-from typing import Dict, Iterable, List, Set
+from typing import Iterable, List, Set
 from itertools import chain, combinations, permutations
 from functools import reduce
+from copy import deepcopy
 
 from sccs import get_sccs_adjacency_dict
 import pddl
@@ -64,7 +65,7 @@ class Action:
         transitions = self.__prepare_transitions(preconditions, transitions)
         micro_actions = conditions + transitions
         micro_actions = self.__order_micro_actions(conditions, transitions)
-        micro_actions = self.__merge_micro_actions(micro_actions, 0)
+        # micro_actions = self.__merge_micro_actions(micro_actions, 0)
         micro_actions = self.__complete_micro_actions(micro_actions,
                                                       preconditions)
         return micro_actions
@@ -244,32 +245,81 @@ class Action:
     def __order_micro_actions(self,
                               preconditions: List[MicroAction],
                               transitions: List[MicroAction]):
-        graph = Graph(preconditions + transitions)
-        # Adding preconditions' order
-        graph = reduce(Graph.add_edge,
-                       zip(preconditions, preconditions[1:]),
-                       graph)
-        # Adding transitions' order
-        graph = reduce(Graph.add_edge,
-                       [(t1, t2)
-                        for t1, t2 in permutations(transitions, 2)
-                        if t1.is_threatened_by(t2, self.__distinct_args)],
-                       graph)
+        for id, micro_action in enumerate(preconditions + transitions):
+            micro_action.id = id
+        ids = [m.id for m in preconditions + transitions]
 
-        # Postponing the modification of state variables until the point
-        # we need their old values, and all of their arguments have been
-        # fixed.
-        for transition in transitions:
-            for precondition in reversed(preconditions):
-                if (   precondition.is_threatened_by(transition,
-                                                     self.__distinct_args)
-                    or not precondition.args.isdisjoint(transition.args)):
-                    graph.add_edge((precondition, transition))
-                    break
+        def prepare_graph() -> Graph[MicroAction]:
+            graph = Graph(preconditions + transitions)
+            
+            # Add edges for the precondition vertices.
+            # NOTE: We have assumed the order of preconditions specifies
+            #       the order of determining the arguments; thus, in the
+            #       following loop we need `combinations` of
+            #       preconditions, rather than `permutations`.
+            for first, second in combinations(preconditions, r=2):
+                if not first.args.isdisjoint(second.args):
+                    graph.add_edge((first, second))
+            distinct_args = self.__distinct_args
+            for transition in transitions:
+                for other in (preconditions + transitions):
+                    if other == transition:
+                        continue
+                    if other.is_threatened_by(transition,distinct_args):
+                        graph.add_edge((other, transition))
+            return graph
+
+        def get_micro_action_by_id(micro_actions: List[MicroAction], id):
+            for micro_action in micro_actions:
+                if id == micro_action.id:
+                    return micro_action
+            return None
+
+        def merge(graph: Graph[MicroAction], pervious, next):
+            graph = deepcopy(graph)
+            previous = get_micro_action_by_id(graph.vertices, pervious.id)
+            next = get_micro_action_by_id(graph.vertices, next.id)
+            next.merge(previous)
+            graph.merge(next, previous)
+            return graph
+
+        def are_mergeable(graph, pervious, next):
+            if (    not pervious.args.issuperset(next.args)
+                and not next.args.issuperset(pervious.args)):
+                return False
+            return not graph.is_merging_make_a_cycle(pervious, next)
+
+        def evaluation(graph: Graph[MicroAction]):
+            preconditions = 0
+            for vertex in graph.vertices:
+                preconditions += 1 if vertex.has_precondition else 0
+            return (preconditions, len(graph.vertices))
+
+        def beam_search(width: int, graph: Graph[MicroAction]): 
+            candidates: List[Graph[MicroAction]] = [graph]
+            for id in ids:
+                new_candidates = []
+                for graph in candidates:
+                    current = get_micro_action_by_id(graph.vertices, id)
+                    if current is None:
+                        continue
+                    for vertex in graph.vertices:
+                        if id <= vertex.id:
+                            continue
+                        if are_mergeable(graph, vertex, current):
+                            new_candidates.append(merge(graph, vertex, current))
+                candidates = sorted(new_candidates + candidates,
+                                    key=evaluation)[:width]
+            return candidates[0]
+
+        graph = prepare_graph()
+        graph = beam_search(400, graph)
 
         def priority(micro_action: MicroAction) -> List[int]:
-            return (  [2] * len(micro_action.transitions)
-                    + [1] * len(micro_action.preconditions))
+            # Micro action with more precondition should be
+            # placed earlier.
+            return (  [2] * len(micro_action.preconditions)
+                    + [1] * len(micro_action.transitions))
         return graph.topological_order(vertex_priority=priority)
 
     def __merge_micro_actions(self,

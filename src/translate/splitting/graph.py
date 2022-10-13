@@ -56,3 +56,35 @@ class Graph(Generic[Vertex]):
                 visited, order = dfs(vertex, visited, order)
 
         return order
+
+    def is_merging_make_a_cycle(self, vertex1: Vertex, vertex2: Vertex)-> bool:
+        def dfs(source, destination, current, visited):
+            if current == destination:
+                return True
+            if current in visited:
+                return False
+            visited.append(current)
+            for neighbor in self.__graph[current]:
+                if current == source and neighbor == destination:
+                    continue
+                if dfs(source, destination, neighbor, visited):
+                    return True 
+            return False
+        return (   dfs(vertex1, vertex2, vertex1, [])
+                or dfs(vertex2, vertex1, vertex2, []))
+
+    def merge(self, main: Vertex, other: Vertex):
+        adjacencies = self.__graph[main]
+        for destination in self.__graph[other]:
+            if destination != main and destination not in adjacencies:
+                adjacencies.append(destination)
+        del self.__graph[other]
+        for source, adjacencies in self.__graph.items():
+            if source == main:
+                if other in adjacencies:
+                    adjacencies.remove(other)
+                continue
+            for i in range(len(adjacencies)):
+                if adjacencies[i] == other:
+                    adjacencies[i] = main
+        return self

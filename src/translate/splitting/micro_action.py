@@ -191,6 +191,7 @@ class MicroAction:
         self.__preconditions: Set[Condition] = set()
         self.__transitions: List[Transition] = []
         self.__args = set()
+        self.__id = None
 
     @property
     def args(self):
@@ -201,12 +202,30 @@ class MicroAction:
         return self.__preconditions.copy()  # deep copy?
 
     @property
+    def has_precondition(self):
+        return len(self.__preconditions) > 0
+
+    @property
     def transitions(self):
         return self.__transitions.copy() # deep copy?
 
     @property
     def effects(self):
         return [e for t in self.__transitions for e in t.effects]
+
+    @property
+    def id(self):
+        if self.__id is None:
+            raise ValueError("ID is not set yet!")
+        return self.__id
+
+    @id.setter
+    def id(self, value):
+        if self.__id is not None:
+            raise ValueError("ID has been set before!")
+        if value is None:
+            raise ValueError("Cannot set ID with the None value!")
+        self.__id = value
 
     def add_precondition(self, condition: Condition):
         self.__preconditions.add(condition)
