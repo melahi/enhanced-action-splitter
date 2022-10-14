@@ -13,6 +13,8 @@ from .knowledge import Knowledge
 from .micro_action import Condition, Transition, MicroAction
 from .graph import Graph
 
+BEAM_SEARCH_WIDTH = 200
+
 
 class Action:
     """Represents an `Action` by a chain of micro-actions
@@ -63,7 +65,6 @@ class Action:
         transitions = self.__get_transitions(action.effects)
         preconditions = {Condition(p) for p in preconditions}
         transitions = self.__prepare_transitions(preconditions, transitions)
-        micro_actions = conditions + transitions
         micro_actions = self.__order_micro_actions(conditions, transitions)
         # micro_actions = self.__merge_micro_actions(micro_actions, 0)
         micro_actions = self.__complete_micro_actions(micro_actions,
@@ -318,7 +319,7 @@ class Action:
             return candidates[0]
 
         graph = prepare_graph()
-        graph = beam_search(400, graph)
+        graph = beam_search(BEAM_SEARCH_WIDTH, graph)
 
         def priority(micro_action: MicroAction) -> List[int]:
             # Micro action with more precondition should be

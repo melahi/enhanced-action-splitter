@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 
 
+import timers
 from pddl.tasks import Task
 
 from .knowledge import Knowledge
@@ -12,11 +13,11 @@ SIZE_THRESHOLD = 10000
 
 
 def main(task: Task):
-    print("Extract knowledge...")
-    knowledge = Knowledge(task)
-    print("Splitting actions ...")
-    actions = [Action(knowledge, action, SIZE_THRESHOLD)
-               for action in task.actions]
+    with timers.timing("Extract knowledge", block=True):
+        knowledge = Knowledge(task)
+    with timers.timing("Splitting actions", block=False):
+        actions = [Action(knowledge, action, SIZE_THRESHOLD)
+                   for action in task.actions]
     output(task, actions)
 
 
