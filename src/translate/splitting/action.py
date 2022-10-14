@@ -160,7 +160,12 @@ class Action:
             influential = sorted(influential_rank[v] for v in variables)
             appearance = sorted(appearance_rank[v] for v in variables)
             new_decisions = get_decision(current_decisions, literal)
-            return (len(new_decisions), appearance, influential)
+            negative_weight = (    len(new_decisions)
+                               and isinstance(literal, NegatedAtom))
+            return (negative_weight,
+                    len(new_decisions),
+                    appearance,
+                    influential)
 
         result: List[MicroAction] = []
         def select_condition(condition: Literal):
