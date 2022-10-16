@@ -26,5 +26,3 @@ def get_conditions(condition):
     if isinstance(condition, Truth):
         return []
     raise ValueError("Unexpected condition type!")
-
-

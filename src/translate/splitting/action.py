@@ -13,7 +13,7 @@ from .knowledge import Knowledge
 from .micro_action import Condition, Transition, MicroAction
 from .graph import Graph
 
-BEAM_SEARCH_WIDTH = 200
+BEAM_SEARCH_WIDTH = 400
 
 
 class Action:
@@ -306,8 +306,10 @@ class Action:
         def beam_search(width: int, graph: Graph[MicroAction]): 
             candidates: List[Graph[MicroAction]] = [graph]
             for id in ids:
-                new_candidates = []
-                for graph in candidates:
+                i = 0
+                while i < len(candidates):
+                    graph = candidates[i]
+                    i += 1
                     current = get_micro_action_by_id(graph.vertices, id)
                     if current is None:
                         continue
@@ -315,9 +317,8 @@ class Action:
                         if id <= vertex.id:
                             continue
                         if are_mergeable(graph, vertex, current):
-                            new_candidates.append(merge(graph, vertex, current))
-                candidates = sorted(new_candidates + candidates,
-                                    key=evaluation)[:width]
+                            candidates.append(merge(graph, vertex, current))
+                candidates = sorted(candidates, key=evaluation)[:width]
             return candidates[0]
 
         graph = prepare_graph()

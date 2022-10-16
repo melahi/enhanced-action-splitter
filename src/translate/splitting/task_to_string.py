@@ -102,11 +102,9 @@ def __problem_to_string(task: Task):
 
 
 def __write(domain: str, problem: str):
-    domain_file = "splitted_domain.pddl"
-    problem_file = "splitted_problem.pddl"
+    domain_file = "split_domain.pddl"
+    problem_file = "split_problem.pddl"
     with open(domain_file, "w") as output_file:
         output_file.write(domain)
     with open(problem_file, "w") as output_file:
         output_file.write(problem)
-
-
