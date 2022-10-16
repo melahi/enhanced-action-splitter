@@ -146,29 +146,60 @@ class Action:
         def get_omittable_args(literal: Literal):
             predicate = (literal.predicate, get_args(literal))
             return self.__knowledge.omittable_arguments(predicate)
-        def get_decision(current_decisions: Set[str], literal: Literal):
-            new_decisions = {v
-                             for v in get_variables(literal)
-                             if appearance_rank[v] == float('inf')}
-            best = current_decisions | new_decisions
-            for arg in get_omittable_args(literal):
-                candidate = (current_decisions | new_decisions) - {arg}
-                if len(best) > len(candidate):
-                    best = candidate
-            return best
-        def get_literal_info(current_decisions: Set[str], literal: Literal):
+
+        result: List[MicroAction] = []
+        def get_decision(new_condition: Literal):
+            conditions = [c.condition for c in result[-1].preconditions]
+            conditions.append(new_condition)
+            variables = {v
+                         for l in conditions
+                         for v in get_variables(l)
+                         if appearance_rank[v] >= len(result) - 1}
+            dependencies: Dict[str, List[Set[str]]] = {}
+            for condition in conditions:
+                if not isinstance(condition, Atom):
+                    continue
+                condition_vars = set(get_variables(condition))
+                for omittable in get_omittable_args(condition):
+                    if omittable not in condition_vars:
+                        continue
+                    dependency = condition_vars - {omittable}
+                    dependencies.setdefault(omittable, []).append(dependency)
+            def decide(determined: Set[str]) -> Set[str]:
+                if variables == determined:
+                    return set()
+                for dependent in dependencies:
+                    if dependent in determined:
+                        continue
+                    for dependency in dependencies[dependent]:
+                        if dependency.issubset(determined):
+                            determined.add(dependent)
+                best_decisions = variables - determined
+                for variable in variables - determined:
+                    # I've assumed `variable` is in `all_dependencies`;
+                    # before calling this function all variable not in
+                    # the dictionary should be added to the `determined`
+                    # set.
+                    for dependency in dependencies[variable]:
+                        decisions = dependency | decide(  determined
+                                                        | dependency
+                                                        | {variable})
+                        if len(decisions) < len(best_decisions):
+                            best_decisions = decisions
+                return best_decisions
+            decisions = {v  for v in variables if v not in dependencies}
+            return decisions | decide(decisions.copy())
+        def get_literal_info(literal: Literal):
             variables = get_variables(literal)
             influential = sorted(influential_rank[v] for v in variables)
             appearance = sorted(appearance_rank[v] for v in variables)
-            new_decisions = get_decision(current_decisions, literal)
+            new_decisions = get_decision(literal)
             negative_weight = (    len(new_decisions)
                                and isinstance(literal, NegatedAtom))
             return (negative_weight,
                     len(new_decisions),
                     appearance,
                     influential)
-
-        result: List[MicroAction] = []
         def select_condition(condition: Literal):
             time = len(result) - 1
             for variable in get_variables(condition):
@@ -197,16 +228,18 @@ class Action:
                     if (    result[-1].args
                         and result[-1].args.isdisjoint(get_args(condition))):
                         continue
-                    key = get_literal_info(current_decisions, condition)
+                    key = get_literal_info(condition)
                     if key < best[0]:
                         best = (key, condition)
                 if best[1] is None:
                     # Can't find any suitable condition
                     break
-                new_decisions = get_decision(current_decisions, best[1])
+                new_decisions = get_decision(best[1])
                 new_args = result[-1].args.union(get_variables(best[1]))
-                new_size = self.__count_estimate(new_args, [])
                 selected = best[1]
+                new_size = self.__count_estimate(new_args,
+                                                   result[-1].preconditions
+                                                 | {Condition(selected)})
         return result
 
     def __prepare_transitions(self,
