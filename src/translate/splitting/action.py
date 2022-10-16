@@ -1,4 +1,4 @@
-from typing import Iterable, List, Set
+from typing import Iterable, List, Set, Dict
 from itertools import chain, combinations, permutations
 from functools import reduce
 from copy import deepcopy
@@ -260,18 +260,20 @@ class Action:
             
             # Add edges for the precondition vertices.
             # NOTE: We have assumed the order of preconditions specifies
-            #       the order of determining the arguments; thus, in the
-            #       following loop we need `combinations` of
-            #       preconditions, rather than `permutations`.
-            for first, second in combinations(preconditions, r=2):
-                if not first.args.isdisjoint(second.args):
-                    graph.add_edge((first, second))
+            #       the order of determining the arguments.
+            determined: Dict[str, MicroAction] = {}
+            for micro_action in preconditions + transitions:
+                for arg in micro_action.args:
+                    if arg in determined:
+                        graph.add_edge((determined[arg], micro_action))
+                    elif micro_action in preconditions:
+                        determined[arg] = micro_action
             distinct_args = self.__distinct_args
             for transition in transitions:
                 for other in (preconditions + transitions):
                     if other == transition:
                         continue
-                    if other.is_threatened_by(transition,distinct_args):
+                    if other.is_threatened_by(transition, distinct_args):
                         graph.add_edge((other, transition))
             return graph
 
