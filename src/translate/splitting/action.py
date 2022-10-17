@@ -213,8 +213,8 @@ class Action:
 
         while conditions:
             result.append(MicroAction())
-            current_decisions = set()
-            new_decisions = set()
+            # current_decisions = set()
+            # new_decisions = set()
             current_size = 0
             new_size = 0
             selected = None
@@ -223,7 +223,7 @@ class Action:
                      True
                    and (   new_size < max(current_size, size_threshold)
                         or not current_size)):
-                current_decisions = new_decisions
+                # current_decisions = new_decisions
                 current_size = new_size
                 if selected is not None:
                     select_condition(selected)
@@ -238,7 +238,7 @@ class Action:
                 if best[1] is None:
                     # Can't find any suitable condition
                     break
-                new_decisions = get_decision(best[1])
+                # new_decisions = get_decision(best[1])
                 new_args = result[-1].args.union(get_variables(best[1]))
                 selected = best[1]
                 new_size = self.__count_estimate(new_args,
