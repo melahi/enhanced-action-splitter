@@ -65,6 +65,7 @@ class Action:
         transitions = self.__get_transitions(action.effects)
         preconditions = {Condition(p) for p in preconditions}
         transitions = self.__prepare_transitions(preconditions, transitions)
+        # micro_actions = conditions + transitions
         micro_actions = self.__order_micro_actions(conditions, transitions)
         # micro_actions = self.__merge_micro_actions(micro_actions, 0)
         micro_actions = self.__complete_micro_actions(micro_actions,
@@ -136,6 +137,7 @@ class Action:
                            conditions: List[Literal],
                            influential_order: List[str],
                            size_threshold: int) -> List[MicroAction]:
+        conditions = conditions.copy()
         def get_args(literal: Literal):
             return [a.name if isinstance(a, TypedObject) else a
                     for a in literal.args]
@@ -194,8 +196,9 @@ class Action:
             influential = sorted(influential_rank[v] for v in variables)
             appearance = sorted(appearance_rank[v] for v in variables)
             new_decisions = get_decision(literal)
-            negative_weight = (    len(new_decisions)
-                               and isinstance(literal, NegatedAtom))
+            negative_weight = (    isinstance(literal, NegatedAtom)
+                               and appearance
+                               and appearance[-1] == float('inf')) #Not defined
             return (negative_weight,
                     len(new_decisions),
                     appearance,
@@ -215,8 +218,9 @@ class Action:
             current_size = 0
             new_size = 0
             selected = None
-            while (    (   len(new_decisions) <= len(current_decisions)
-                        or not current_decisions)
+            while (  #  (   len(new_decisions) <= len(current_decisions)
+                     #   or not current_decisions)
+                     True
                    and (   new_size < max(current_size, size_threshold)
                         or not current_size)):
                 current_decisions = new_decisions
@@ -351,6 +355,7 @@ class Action:
                             continue
                         if are_mergeable(graph, vertex, current):
                             candidates.append(merge(graph, vertex, current))
+                # print(f"{id}/{len(ids)} -> {len(candidates)}")
                 candidates = sorted(candidates, key=evaluation)[:width]
             return candidates[0]
 
