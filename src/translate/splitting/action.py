@@ -199,7 +199,7 @@ class Action:
             negative_weight = (    isinstance(literal, NegatedAtom)
                                and appearance
                                and appearance[-1] == float('inf')) #Not defined
-            return (negative_weight,
+            return (bool(negative_weight),
                     len(new_decisions),
                     appearance,
                     influential)
@@ -227,7 +227,8 @@ class Action:
                 current_size = new_size
                 if selected is not None:
                     select_condition(selected)
-                best = ((float('inf'), [float('inf')], [float('inf')]), None)
+                best = ((True, float('inf'), [float('inf')], [float('inf')]),
+                        None)
                 for condition in conditions:
                     if (    result[-1].args
                         and result[-1].args.isdisjoint(get_args(condition))):
