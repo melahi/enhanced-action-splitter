@@ -159,7 +159,7 @@ class Action:
             for condition in conditions:
                 if not isinstance(condition, Atom):
                     continue
-                condition_vars = set(get_variables(condition))
+                condition_vars = set(get_variables(condition)) & variables
                 for omittable in get_omittable_args(condition):
                     if omittable not in condition_vars:
                         continue
