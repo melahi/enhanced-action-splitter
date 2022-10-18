@@ -51,7 +51,10 @@ class Graph(Generic[Vertex]):
 
         order = []
         visited = []
-        for vertex in self.__graph:
+        vertices = self.__graph
+        if vertex_priority:
+            vertices = sorted(vertices, key=vertex_priority)
+        for vertex in vertices:
             if vertex not in order:
                 visited, order = dfs(vertex, visited, order)
 

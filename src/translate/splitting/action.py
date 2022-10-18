@@ -363,11 +363,15 @@ class Action:
         graph = prepare_graph()
         graph = beam_search(BEAM_SEARCH_WIDTH, graph)
 
+        count = {m: self.__count_estimate(m.args, m.preconditions)
+                 for m in graph.vertices}
         def priority(micro_action: MicroAction) -> List[int]:
-            # Micro action with more precondition should be
-            # placed earlier.
-            return (  [2] * len(micro_action.preconditions)
-                    + [1] * len(micro_action.transitions))
+            # Priority criteria:
+            # 1. Less number of possible grounded instance,
+            # 2. More preconditions and less transitions
+            return (-1 * count[micro_action],
+                      len(micro_action.preconditions)
+                    - len(micro_action.transitions))
         return graph.topological_order(vertex_priority=priority)
 
     def __merge_micro_actions(self,
