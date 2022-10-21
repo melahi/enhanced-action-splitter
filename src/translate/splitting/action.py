@@ -52,6 +52,10 @@ class Action:
         return self.__name
 
     def to_string(self, indent: str) -> str:
+        if len(self.__micro_actions) == 1:
+            return self.__micro_actions[0].to_string(self.__name,
+                                                     self.__args,
+                                                     indent)
         return "\n".join(m.to_string(f"{self.__name}_{i}", self.__args, indent)
                          for i, m in enumerate(self.__micro_actions))
 
