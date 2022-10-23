@@ -68,9 +68,7 @@ class Action:
                                              size_threshold)
         transitions = self.__get_transitions(action.effects)
         preconditions = {Condition(p) for p in preconditions}
-        transitions = self.__prepare_transitions(preconditions,
-                                                 transitions,
-                                                 size_threshold)
+        transitions = self.__prepare_transitions(preconditions, transitions, 1)
         # micro_actions = conditions + transitions
         micro_actions = self.__order_micro_actions(conditions, transitions)
         # micro_actions = self.__merge_micro_actions(micro_actions, 0)
@@ -480,7 +478,7 @@ class Action:
         current_size = self.__count_estimate(transition.args, [])
         while not level_off:
             level_off = True
-            best = (max(current_size, size_threshold) + 1, None)
+            best = (-1, None)
             for condition in conditions:
                 args = condition.find_args()
                 if transition.args.isdisjoint(args):
@@ -488,7 +486,8 @@ class Action:
                 new_args = transition.args | args
                 new_conditions = transition.preconditions | {condition}
                 new_size = self.__count_estimate(new_args, new_conditions)
-                if new_size < best[0]:
+                if (    new_size <= max(current_size, size_threshold)
+                    and new_size > best[0]):
                     best = (new_size, condition)
             if best[1] is not None:
                 transition.merge(MicroAction().add_precondition(best[1]))
