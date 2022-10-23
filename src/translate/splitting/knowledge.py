@@ -7,7 +7,6 @@ import normalize
 from invariant_finder import find_invariants
 from invariants import Invariant
 from pddl import Task, Literal, Atom, Assign, Effect
-import pddl
 from pddl.conditions import Conjunction, ConstantCondition
 from pddl.conditions import JunctorCondition, Truth
 from pddl.pddl_types import TypedObject
