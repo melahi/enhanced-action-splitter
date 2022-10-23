@@ -70,8 +70,6 @@ class Condition(AtomicActionPart):
                          transition: 'Transition',
                          distinct_args: Dict[str, List[str]]) -> bool:
         for effect in transition.effects:
-            if self.__condition.negated == effect.negated:
-                continue
             if self._are_possibly_the_same(self.__condition,
                                            effect,
                                            distinct_args):
@@ -156,7 +154,10 @@ class Transition(AtomicActionPart):
         if (    len(self.__effects) == 1
             and self.__effects[0].negated
             and len(transition.__effects) == 1
-            and not transition.__effects[0].negated):
+            and not transition.__effects[0].negated
+            and self._are_possibly_the_same(self.__effects[0],
+                                            transition.__effects[0],
+                                            distinct_args)):
             return True
 
         return False
