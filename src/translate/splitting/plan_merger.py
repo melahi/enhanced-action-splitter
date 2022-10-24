@@ -11,7 +11,7 @@ OUTPUT_PLAN_FILE = "plan"
 class GroundAction:
     def __init__(self, action: 'Action') -> None:
         self.__action = action
-        self.__args = [None for _ in action.args]
+        self.__args = [None] * len(action.defaults)
         self.__current_step = 0
 
     def __str__(self):
@@ -19,12 +19,14 @@ class GroundAction:
             raise Exception(f"Not completed procedure for {self.__action.name}"
                             f"({self.__current_step}"
                             f"/{len(self.__action.procedure)})")
-        return f"({' '.join([self.__action.name] + self.__args)})"
+        args = [a if a is not None else d
+                for a, d in zip(self.__args, self.__action.defaults)]
+        return f"({' '.join([self.__action.name] + args)})"
 
     def add_step(self, args):
         for arg, value in zip(self.__action.procedure[self.__current_step],
                               args):
-            arg_index = self.__action.args[arg]
+            arg_index = self.__action.indices[arg]
             if self.__args[arg_index] is None:
                 self.__args[arg_index] = value
             elif self.__args[arg_index] != value:
@@ -36,9 +38,10 @@ class GroundAction:
 
 
 class Action:
-    def __init__(self, name: str, args: List[TypedObject]) -> None:
+    def __init__(self, name: str, args: List[TypedObject], default_objects):
         self.name = name
-        self.args = {a.name: i for i, a in enumerate(args)}
+        self.indices = {a.name: i for i, a in enumerate(args)}
+        self.defaults = [default_objects[a.type_name] for a in args]
         self.procedure: List[List[str]] = []
 
     def add_step(self, index, args):
@@ -56,8 +59,21 @@ def split_name(name: str):
     return name[:last_index], int(name[last_index + 1:])
 
 
+def find_default_objects(task: Task):
+    parents = {t.name: t.basetype_name for t in task.types}
+    default_objects = {}
+    for object in task.objects:
+        current_type = object.type_name
+        while current_type is not None:
+            default_objects.setdefault(current_type, object.name)
+            current_type = parents.get(current_type, None)
+    return default_objects
+
+
 def create_actions(task: Task, splitted: Task):
-    actions = {a.name: Action(a.name, a.parameters) for a in task.actions}
+    default_objects = find_default_objects(task)
+    actions = {a.name: Action(a.name, a.parameters, default_objects)
+               for a in task.actions}
     for micro_action in splitted.actions:
         name, index = split_name(micro_action.name)
         actions[name].add_step(index, micro_action.parameters)
