@@ -135,7 +135,10 @@ class Action:
                                  for predicate in predicates]))
         graph = reduce(Graph.add_edge, relations, graph)
 
-        return graph.topological_order()
+        def priority(vertex: str) -> int:
+            return len(graph.neighbors(vertex))
+
+        return graph.topological_order(vertex_priority=priority)
 
     def __order_conditions(self,
                            conditions: List[Literal],
@@ -225,7 +228,7 @@ class Action:
             while (  #  (   len(new_decisions) <= len(current_decisions)
                      #   or not current_decisions)
                      True
-                   and (   new_size < max(current_size, size_threshold)
+                   and (   new_size <= max(current_size, size_threshold)
                         or not current_size)):
                 # current_decisions = new_decisions
                 current_size = new_size
