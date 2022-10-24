@@ -41,7 +41,7 @@ class Action:
     def __init__(self, name: str, args: List[TypedObject], default_objects):
         self.name = name
         self.indices = {a.name: i for i, a in enumerate(args)}
-        self.defaults = [default_objects[a.type_name] for a in args]
+        self.defaults = [default_objects.get(a.type_name, None) for a in args]
         self.procedure: List[List[str]] = []
 
     def add_step(self, index, args):
