@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from invariant_finder import find_invariants
 from normalize import normalize
+from pddl.conditions import Atom
 from pddl.tasks import Task
 
 
@@ -43,7 +44,9 @@ class ArrayFinder:
                      .append(Array(part.predicate, part.omitted_pos)))
 
     def __find_static_arrays(self, task: Task):
-        initial_state = [(fact.predicate, fact.args) for fact in task.init]
+        initial_state = [(fact.predicate, fact.args)
+                         for fact in task.init
+                         if isinstance(fact, Atom)]
         def process_candidate(candidate):
             return self.__process_static_candidates(initial_state, candidate)
 
