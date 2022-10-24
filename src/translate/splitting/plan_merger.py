@@ -54,7 +54,7 @@ class Action:
 
 def split_name(name: str):
     last_index = name.rfind('_')
-    if last_index == -1:
+    if last_index == -1 or not name[last_index + 1:].isdigit():
         return (name, 0)
     return name[:last_index], int(name[last_index + 1:])
 
