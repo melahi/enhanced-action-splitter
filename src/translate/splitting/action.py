@@ -136,7 +136,8 @@ class Action:
         graph = reduce(Graph.add_edge, relations, graph)
 
         def priority(vertex: str) -> int:
-            return len(graph.neighbors(vertex))
+            return (len([r for r in relations if r[0] == vertex]),
+                    len([r for r in relations if r[1] == vertex]))
 
         return graph.topological_order(vertex_priority=priority)
 
