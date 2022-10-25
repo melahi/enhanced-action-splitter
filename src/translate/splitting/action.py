@@ -200,16 +200,12 @@ class Action:
             return decisions | decide(decisions.copy())
         def get_literal_info(literal: Literal):
             variables = get_variables(literal)
-            influential = sorted(influential_rank[v] for v in variables)
-            appearance = sorted(appearance_rank[v] for v in variables)
-            new_decisions = get_decision(literal)
+            ranks = sorted((appearance_rank[v], influential_rank[v])
+                           for v in variables)
             negative_weight = (    isinstance(literal, NegatedAtom)
-                               and appearance
-                               and appearance[-1] == float('inf')) #Not defined
-            return (bool(negative_weight),
-                    len(new_decisions),
-                    appearance,
-                    influential)
+                               and ranks
+                               and ranks[-1][0] == float('inf')) #Not defined
+            return (bool(negative_weight), ranks)
         def select_condition(condition: Literal):
             time = len(result) - 1
             for variable in get_variables(condition):
@@ -220,38 +216,29 @@ class Action:
 
         while conditions:
             result.append(MicroAction())
-            # current_decisions = set()
-            # new_decisions = set()
-            current_size = 0
-            new_size = 0
-            selected = None
-            while (  #  (   len(new_decisions) <= len(current_decisions)
-                     #   or not current_decisions)
-                     True
-                   and (   new_size <= max(current_size, size_threshold)
-                        or not current_size)):
-                # current_decisions = new_decisions
-                current_size = new_size
-                if selected is not None:
-                    select_condition(selected)
-                best = ((True, float('inf'), [float('inf')], [float('inf')]),
-                        None)
+            current_size = float('inf')
+            while True:
+                best = ((True, [(float('inf'), float('inf'))]), 0, None)
                 for condition in conditions:
+                    new_variables = get_variables(condition)
                     if (    result[-1].args
-                        and result[-1].args.isdisjoint(get_args(condition))):
+                        and new_variables
+                        and result[-1].args.isdisjoint(new_variables)):
+                        continue
+                    new_args = result[-1].args.union(new_variables)
+                    new_size = self.__count_estimate(new_args,
+                                                       result[-1].preconditions
+                                                     | {Condition(condition)})
+                    if new_size > max(size_threshold, current_size):
                         continue
                     key = get_literal_info(condition)
                     if key < best[0]:
-                        best = (key, condition)
-                if best[1] is None:
+                        best = (key, new_size, condition)
+                if best[2] is None:
                     # Can't find any suitable condition
                     break
-                # new_decisions = get_decision(best[1])
-                new_args = result[-1].args.union(get_variables(best[1]))
-                selected = best[1]
-                new_size = self.__count_estimate(new_args,
-                                                   result[-1].preconditions
-                                                 | {Condition(selected)})
+                current_size = best[1]
+                select_condition(best[2])
         return result
 
     def __prepare_transitions(self,
