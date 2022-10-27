@@ -13,6 +13,7 @@ from .knowledge import Knowledge
 from .micro_action import Condition, Transition, MicroAction
 from .graph import Graph
 
+
 BEAM_SEARCH_WIDTH = 400
 
 

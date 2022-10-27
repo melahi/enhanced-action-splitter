@@ -64,12 +64,13 @@ class Knowledge:
     def get_relations(self, predicate: Predicate) -> List[Tuple[str, str]]:
         is_constant = lambda arg: not str(arg).startswith("?")
         relations = []
-        for omitted_position in self.__omitted_positions.get(predicate[0], []):
+        omitted_positions = self.__omitted_positions.get(predicate[0], [])
+        for omitted_position in omitted_positions:
             counted_variable = predicate[1][omitted_position]
             if is_constant(counted_variable):
                 continue
-            for arg in predicate[1]:
-                if arg == counted_variable or is_constant(arg):
+            for i, arg in enumerate(predicate[1]):
+                if i in omitted_positions or is_constant(arg):
                     continue
                 relations.append((arg, counted_variable))
         return relations
