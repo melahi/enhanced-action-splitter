@@ -281,10 +281,12 @@ class MicroAction:
         args = ' '.join([f"{a.name} - {a.type_name}"
                          for a in args
                          if a.name in self.__args])
-        preconditions = f"{indent}\t\t(and\n"
+        conditions = []
         for precondition in self.__preconditions:
-            preconditions += precondition.to_string(indent + "\t\t\t")
-        preconditions += f"{indent}\t\t)\n"
+            conditions.append(precondition.to_string(indent + "\t\t\t"))
+        conditions.sort()
+        conditions = "".join(conditions)
+        preconditions = f"{indent}\t\t(and\n{conditions}{indent}\t\t)\n"
         effects = f"{indent}\t\t(and\n"
         for transition in self.__transitions:
             effects += transition.to_string(indent + "\t\t\t")

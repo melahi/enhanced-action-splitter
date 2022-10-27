@@ -1,13 +1,15 @@
 #! /usr/bin/env python3
 
 
-from heapq import merge
 import sys
 
 # TODO: The following lines is an ugly way to override argument handling
 #       implemented in the `options.py` file.
 arguments = sys.argv[1:]
 sys.argv = ["dummy1", "dummy2", "dummy3"]
+
+import random
+random.seed(14)
 
 import timers
 import pddl_parser

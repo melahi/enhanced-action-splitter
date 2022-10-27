@@ -37,6 +37,7 @@ def __update_task(task: Task, actions: List[Action]) -> Task:
     task.init = [l for l in task.init
                  if isinstance(l, Literal) and l.predicate != "="]
     new_objects = set().union(*[action.new_objects for action in actions])
+    new_objects = sorted(new_objects, key=lambda x: int(x.split("_")[-1]))
     task.objects.extend([pddl.TypedObject(new_object, STEP_TYPE)
                          for new_object in new_objects])
     task.actions = actions
