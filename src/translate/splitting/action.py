@@ -208,10 +208,13 @@ class Action:
             variables = get_variables(literal)
             ranks = sorted((appearance_rank[v], influential_rank[v])
                            for v in variables)
+            static_weight = (    self.__knowledge.is_static(literal.predicate)
+                             and ranks
+                             and ranks[0][0] != float('inf'))
             negative_weight = (    isinstance(literal, NegatedAtom)
                                and ranks
                                and ranks[-1][0] == float('inf')) #Not defined
-            return (bool(negative_weight), ranks)
+            return (bool(negative_weight), not static_weight, ranks)
         def select_condition(condition: Literal):
             time = len(result) - 1
             for variable in get_variables(condition):
@@ -224,7 +227,7 @@ class Action:
             result.append(MicroAction())
             current_size = float('inf')
             while True:
-                best = ((True, [(float('inf'), float('inf'))]), 0, None)
+                best = ((True, True, [(float('inf'), float('inf'))]), 0, None)
                 for condition in conditions:
                     new_variables = get_variables(condition)
                     if (    result[-1].args
