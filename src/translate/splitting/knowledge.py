@@ -78,39 +78,38 @@ class Knowledge:
     def get_variables(self, literal: Literal):
         return self.__variables.get(literal.predicate, set()).copy()
 
-    def count_estimate(self,
-                       args: List[TypedObject],
-                       conditions: Iterable[Literal]) -> int:
+    def all_count_estimate(self,
+                           args: List[TypedObject],
+                           conditions: Iterable[Literal]) -> int:
         """ Calculates an upper-bound estimate for possible instantiations
 
         Exploiting the static knowledge of the domain, this function
         finds a virtually tight upper-bound for the number of possible
         instantiations of the `args`, based on the given `conditions`.
+
+        Returns an integer considering ALL ARGUMENTS in instantiations.
+
+        NOTE: We do not support negative literals
         """
-        # NOTE: We do not support negative literals
-        condition = [c for c in conditions if isinstance(c, Atom)]
-        covered_args = []
-        static_relations = []
-        for condition in conditions:
-            relation = self.__statics.get(condition.predicate, None)
-            if relation is None:
-                continue
-            condition_args = [a.name if isinstance(a, TypedObject) else a
-                              for a in condition.args]
-            covered_args.extend(condition_args)
-            relation = relation.copy(deep=False)
-            relation.columns = condition_args
-            constant_args = {a: [a]
-                             for a in condition_args if not a.startswith("?")}
-            if constant_args:
-                relation = relation.merge(pd.DataFrame(constant_args))
-            static_relations.append(relation)
-        estimate_count = self.__join_result_count(static_relations)
-        for arg in args:
-            if arg.name in covered_args:
-                continue
-            estimate_count *= len(self.__objects[arg.type_name])
-        return estimate_count
+        (_, count_estimate) = self.__count_estimate(args, conditions)
+        return count_estimate
+
+    def single_count_estimate(self,
+                              args: List[TypedObject],
+                              conditions: Iterable[Literal]) -> Dict[str, int]:
+        """ Calculates an upper-bound estimate for possible instantiations
+
+        Exploiting the static knowledge of the domain, this function
+        finds a virtually tight upper-bound for the number of possible
+        instantiations of the `args`, based on the given `conditions`.
+
+        Returns a dictionary specifying possible value for each SINGLE
+        ARGUMENT in instantiations.
+
+        NOTE: We do not support negative literals
+        """
+        (count_estimate, _) = self.__count_estimate(args, conditions)
+        return count_estimate
 
     def has_shared_elements(self, type1: str, type2: str) -> bool:
         def is_ancestor(subject, object):
@@ -220,6 +219,35 @@ class Knowledge:
         (state_variables, _) = __find_minimum_state_variables(predicates)
         return state_variables
 
+    def __count_estimate(self,
+                         args: List[TypedObject],
+                         conditions: Iterable[Literal]) -> Tuple[Dict, int]:
+        # NOTE: We do not support negative literals
+        condition = [c for c in conditions if isinstance(c, Atom)]
+        covered_args = []
+        static_relations = []
+        for condition in conditions:
+            relation = self.__statics.get(condition.predicate, None)
+            if relation is None:
+                continue
+            condition_args = [a.name if isinstance(a, TypedObject) else a
+                              for a in condition.args]
+            covered_args.extend(condition_args)
+            relation = relation.copy(deep=False)
+            relation.columns = condition_args
+            constant_args = {a: [a]
+                             for a in condition_args if not a.startswith("?")}
+            if constant_args:
+                relation = relation.merge(pd.DataFrame(constant_args))
+            static_relations.append(relation)
+        args_count, estimate_count = self.__join_result_count(static_relations)
+        for arg in args:
+            if arg.name in covered_args:
+                continue
+            args_count[arg.name] = len(self.__objects[arg.type_name])
+            estimate_count *= args_count[arg.name]
+        return args_count, estimate_count
+
     def __filter_not_instantiable_actions(self, task: Task):
         actions = []
         for action in task.actions:
@@ -315,10 +343,17 @@ class Knowledge:
         self.__statics = {k: pd.DataFrame(v) for k, v in statics.items()}
 
     @staticmethod
-    def __join_result_count(relations: List[pd.DataFrame]) -> int:
+    def __join_result_count(relations: List[pd.DataFrame]) -> Tuple[Dict, int]:
+        # The dictionary in the return value maps arguments (columns'
+        # names) to the number of their possible instantiations in this
+        # join.
+        # The second element of the return value, with the type of int,
+        # specifies the number of records after joining the relations.
+
         # TODO: Use memoization to optimize this function
+        args_count: Dict[str, int] = {}
         def are_mergeable(relation1, relation2):
-            return any(c in relation2.columns for c in relation1.columns)
+            return not set(relation1.columns).isdisjoint(relation2.columns)
         count = 1
         while relations:
             current = relations.pop()
@@ -331,7 +366,9 @@ class Knowledge:
                 else:
                     break
             count *= current.shape[0]
-        return count
+            args_count.update({a: current[a].unique().size
+                               for a in current.columns})
+        return args_count, count
 
     def __set_static_function(self):
         """Sets static functions

@@ -136,9 +136,13 @@ class Action:
                                  for predicate in predicates]))
         graph = reduce(Graph.add_edge, relations, graph)
 
+        possible_values = (self
+                           .__knowledge
+                           .single_count_estimate(self.__args, conditions))
         def priority(vertex: str) -> int:
             return (len([r for r in relations if r[0] == vertex]),
-                    len([r for r in relations if r[1] == vertex]))
+                    len([r for r in relations if r[1] == vertex]),
+                    -1 * possible_values[vertex])
 
         return graph.topological_order(vertex_priority=priority)
 
@@ -503,7 +507,7 @@ class Action:
     def __count_estimate(self, args, conditions: Iterable[Condition]):
         args = [a for a in self.__args if a.name in args]
         conditions = [c.condition for c in conditions]
-        return self.__knowledge.count_estimate(args, conditions)
+        return self.__knowledge.all_count_estimate(args, conditions)
 
     def __find_distinct_args(self, preconditions: List[Literal]):
         distinct_args = {a.name: [] for a in self.__args}

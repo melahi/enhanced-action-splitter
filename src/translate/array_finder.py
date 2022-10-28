@@ -1,8 +1,7 @@
 #! /usr/bin/env python3
 
 
-from operator import length_hint
-from typing import List, Tuple
+from typing import List
 from dataclasses import dataclass
 
 from invariant_finder import find_invariants
