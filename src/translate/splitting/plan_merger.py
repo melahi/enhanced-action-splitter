@@ -86,7 +86,7 @@ def read_plan(plan_file: str) -> List[str]:
         for line in input:
             if line[0] == ";":
                 continue
-            plan.append(line.strip()[1:-1])  # Drop parentheses
+            plan.append(line.strip()[1:-1].lower())  # Drop parentheses
     return plan
 
 
