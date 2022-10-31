@@ -194,14 +194,15 @@ class Action:
                             determined.add(dependent)
                 best_decisions = variables - determined
                 for variable in variables - determined:
-                    # I've assumed `variable` is in `all_dependencies`;
+                    # I've assumed `variable` is in `dependencies`;
                     # before calling this function all variable not in
                     # the dictionary should be added to the `determined`
                     # set.
                     for dependency in dependencies[variable]:
-                        decisions = dependency | decide(  determined
-                                                        | dependency
-                                                        | {variable})
+                        decisions = ((dependency - determined)
+                                     | decide(  determined
+                                              | dependency
+                                              | {variable}))
                         if len(decisions) < len(best_decisions):
                             best_decisions = decisions
                 return best_decisions
