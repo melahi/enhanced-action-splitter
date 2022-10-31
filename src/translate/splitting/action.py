@@ -16,7 +16,7 @@ from .graph import Graph
 
 BEAM_SEARCH_WIDTH = 400
 print("BEAM_SEARCH_WIDTH:", BEAM_SEARCH_WIDTH)
-DECISION_THRESHOLD = 4
+DECISION_THRESHOLD = 2
 print("DECISION THRESHOLD:", DECISION_THRESHOLD)
 
 
@@ -212,12 +212,13 @@ class Action:
             variables = get_variables(literal)
             ranks = sorted((appearance_rank[v], influential_rank[v])
                            for v in variables)
-            decision_weight = len(get_decision(literal))
-            static_weight = self.__knowledge.is_static(literal.predicate)
+            static_weight = (    self.__knowledge.is_static(literal.predicate)
+                             and ranks
+                             and ranks[-1][0] != float('inf'))
             negative_weight = (    isinstance(literal, NegatedAtom)
                                and ranks
                                and ranks[-1][0] == float('inf')) #Not defined
-            return (bool(negative_weight), decision_weight, not static_weight, ranks)
+            return (bool(negative_weight), not static_weight, ranks)
         def select_condition(condition: Literal):
             time = len(result) - 1
             for variable in get_variables(condition):
@@ -231,7 +232,7 @@ class Action:
             current_size = float('inf')
             current_decisions = float('inf')
             while True:
-                best = ((True, float('inf'), True, [(float('inf'), float('inf'))]), 0, None)
+                best = ((True, True, [(float('inf'), float('inf'))]), 0, 0, None)
                 for condition in conditions:
                     new_variables = get_variables(condition)
                     if (    result[-1].args
@@ -244,17 +245,19 @@ class Action:
                                                      | {Condition(condition)})
                     if new_size > max(size_threshold, current_size):
                         continue
-                    key = get_literal_info(condition)
-                    if key[1] > max(current_decisions, DECISION_THRESHOLD):
+                    new_decisions = len(get_decision(condition))
+                    if new_decisions > max(current_decisions,
+                                           DECISION_THRESHOLD):
                         continue
+                    key = get_literal_info(condition)
                     if key < best[0]:
-                        best = (key, new_size, condition)
-                if best[2] is None:
+                        best = (key, new_decisions, new_size, condition)
+                if best[3] is None:
                     # Can't find any suitable condition
                     break
-                current_size = best[1]
-                current_decisions = best[0][1]
-                select_condition(best[2])
+                current_size = best[2]
+                current_decisions = best[1]
+                select_condition(best[3])
         return result
 
     def __prepare_transitions(self,
