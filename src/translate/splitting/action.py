@@ -72,7 +72,7 @@ class Action:
                                              size_threshold)
         transitions = self.__get_transitions(action.effects)
         preconditions = {Condition(p) for p in preconditions}
-        transitions = self.__prepare_transitions(preconditions, transitions, 1)
+        transitions = self.__prepare_transitions(preconditions, transitions)
         # micro_actions = conditions + transitions
         micro_actions = self.__order_micro_actions(conditions, transitions)
         # micro_actions = self.__merge_micro_actions(micro_actions, 0)
@@ -262,8 +262,7 @@ class Action:
 
     def __prepare_transitions(self,
                               partial_state: Set[Condition],
-                              transitions: List[Transition],
-                              size_threshold: int) -> List[MicroAction]:
+                              transitions: List[Transition]) -> List[MicroAction]:
         """Prepares the ordered micro-action list of transitions
 
         To complete the actions' definition, we need to specify its
@@ -296,10 +295,9 @@ class Action:
         statics = {c
                    for c in partial_state
                    if self.__knowledge.is_static(c.condition.predicate)}
+        statics = sorted(statics, key=lambda c: c.to_string(""))
         for transition in transitions:
-            transition = self.__complete_transition(transition,
-                                                    statics,
-                                                    size_threshold)
+            transition = self.__complete_transition(transition, statics)
         return transitions
 
     def __order_micro_actions(self,
@@ -471,8 +469,7 @@ class Action:
 
     def __complete_transition(self,
                               transition: MicroAction,
-                              conditions: Iterable[Condition],
-                              size_threshold: int) -> MicroAction:
+                              conditions: Iterable[Condition]) -> MicroAction:
         """Add related conditions to the given Transition
 
         Find transition's related conditions and add them to it. Related
@@ -495,13 +492,13 @@ class Action:
                 new_args = transition.args | args
                 new_conditions = transition.preconditions | {condition}
                 new_size = self.__count_estimate(new_args, new_conditions)
-                if (    new_size <= max(current_size, size_threshold)
-                    and new_size > best[0]):
+                if new_size <= current_size and new_size > best[0]:
                     best = (new_size, condition)
             if best[1] is not None:
                 transition.merge(MicroAction().add_precondition(best[1]))
                 conditions.remove(best[1])
                 level_off = False
+                current_size = best[0]
         return transition
 
     def __complete_micro_actions(self,
