@@ -60,21 +60,38 @@ class Graph(Generic[Vertex]):
 
         return order
 
-    def is_merging_make_a_cycle(self, vertex1: Vertex, vertex2: Vertex)-> bool:
-        def dfs(source, destination, current, visited):
+    def is_connected(self, source: Vertex, destination: Vertex) -> bool:
+        visited = []
+        queue = [source]
+        while not queue:
+            current = queue.pop()
+            if current in visited:
+                continue
             if current == destination:
                 return True
-            if current in visited:
-                return False
             visited.append(current)
-            for neighbor in self.__graph[current]:
-                if current == source and neighbor == destination:
-                    continue
-                if dfs(source, destination, neighbor, visited):
-                    return True 
-            return False
-        return (   dfs(vertex1, vertex2, vertex1, [])
-                or dfs(vertex2, vertex1, vertex2, []))
+            queue.extend(self.__graph[current])
+        return False
+
+    def is_merging_make_a_cycle(self, vertex1: Vertex, vertex2: Vertex)-> bool:
+        # temporary removing edges
+        v1_to_v2 = vertex2 in self.__graph[vertex1]
+        v2_to_v1 = vertex1 in self.__graph[vertex2]
+        if v1_to_v2:
+            self.__graph[vertex1].remove(vertex2)
+        if v2_to_v1:
+            self.__graph[vertex2].remove(vertex1)
+        
+        #check cycle formation
+        becomes_a_cycle = (   self.is_connected(vertex1, vertex2)
+                           or self.is_connected(vertex2, vertex1))
+        # reverting back the removed edges
+        if v1_to_v2:
+            self.__graph[vertex1].append(vertex2)
+        if v2_to_v1:
+            self.__graph[vertex2].append(vertex1)
+
+        return becomes_a_cycle
 
     def merge(self, main: Vertex, other: Vertex):
         adjacencies = self.__graph[main]
