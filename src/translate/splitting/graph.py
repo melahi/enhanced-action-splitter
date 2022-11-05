@@ -31,6 +31,15 @@ class Graph(Generic[Vertex]):
     def neighbors(self, vertex: Vertex):
         return self.__graph[vertex].copy()
 
+    def make_acyclic(self, vertex_priority=None):
+        order = {v: i
+                 for i,v in enumerate(self.topological_order(vertex_priority))}
+        for vertex in self.__graph.keys():
+            self.__graph[vertex] = [neighbor
+                                    for neighbor in self.__graph[vertex]
+                                    if order[neighbor] > order[vertex]]
+        return self
+
     def topological_order(self, vertex_priority=None) -> List[Vertex]:
         def dfs(vertex, visited, order):
             stack = [(False, vertex)]
