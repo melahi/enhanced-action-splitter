@@ -1,3 +1,4 @@
+import copy
 from itertools import chain
 from typing import List, Set, Dict
 
@@ -192,7 +193,6 @@ class MicroAction:
         self.__preconditions: Set[Condition] = set()
         self.__transitions: List[Transition] = []
         self.__args = set()
-        self.__id = None
 
     @property
     def args(self):
@@ -214,19 +214,24 @@ class MicroAction:
     def effects(self):
         return [e for t in self.__transitions for e in t.effects]
 
-    @property
-    def id(self):
-        if self.__id is None:
-            raise ValueError("ID is not set yet!")
-        return self.__id
+    def __copy__(self):
+        shallow_copy = MicroAction()
+        shallow_copy.__preconditions = self.__preconditions.copy()
+        shallow_copy.__transitions = self.__transitions.copy()
+        shallow_copy.__args = self.__args.copy()
+        return shallow_copy
 
-    @id.setter
-    def id(self, value):
-        if self.__id is not None:
-            raise ValueError("ID has been set before!")
-        if value is None:
-            raise ValueError("Cannot set ID with the None value!")
-        self.__id = value
+    def __deepcopy__(self, memo):
+        # To improve the performance (especially for beam search), we
+        # assume two preconditions (or two transitions) are different
+        # only if their object IDs (addresses) are different.
+        # Thus, we disable deep copy of MicroAction to prevent cloning 
+        # the same preconditions or transitions in with different IDs.
+        raise Exception("Deep copy for `MicroAction` is disabled to prevent "
+                        "unexpected bugs!")
+
+    def copy(self):
+        return copy.copy(self)
 
     def add_precondition(self, condition: Condition):
         self.__preconditions.add(condition)
