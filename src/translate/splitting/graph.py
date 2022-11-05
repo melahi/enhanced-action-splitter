@@ -1,3 +1,4 @@
+import copy
 from typing import List, Tuple, Generic, TypeVar
 
 
@@ -18,6 +19,17 @@ class Graph(Generic[Vertex]):
 
     def __str__(self) -> str:
         return str(self.__graph)
+
+    def __copy__(self) -> 'Graph[Vertex]':
+        shallow_copy = Graph()
+        mapping = {v: copy.copy(v) for v in self.__graph}
+        for vertex, neighbors in self.__graph.items():
+            shallow_copy.__graph[mapping[vertex]] = [mapping[n]
+                                                     for n in neighbors]
+        return shallow_copy
+
+    def copy(self) -> 'Graph[Vertex]':
+        return copy.copy(self)
 
     @property
     def vertices(self):
