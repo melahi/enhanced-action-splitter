@@ -1,5 +1,5 @@
 import copy
-from typing import List, Tuple, Generic, TypeVar
+from typing import List, Tuple, Dict, Generic, TypeVar
 
 
 Vertex = TypeVar('Vertex')
@@ -19,17 +19,6 @@ class Graph(Generic[Vertex]):
 
     def __str__(self) -> str:
         return str(self.__graph)
-
-    def __copy__(self) -> 'Graph[Vertex]':
-        shallow_copy = Graph()
-        mapping = {v: copy.copy(v) for v in self.__graph}
-        for vertex, neighbors in self.__graph.items():
-            shallow_copy.__graph[mapping[vertex]] = [mapping[n]
-                                                     for n in neighbors]
-        return shallow_copy
-
-    def copy(self) -> 'Graph[Vertex]':
-        return copy.copy(self)
 
     @property
     def vertices(self):
@@ -113,6 +102,19 @@ class Graph(Generic[Vertex]):
             self.__graph[vertex2].append(vertex1)
 
         return becomes_a_cycle
+
+    def clone(self) -> Tuple['Graph[Vertex]', Dict[Vertex, Vertex]]:
+        """Clones the current graph
+
+        This function makes a copy of the current graph and returns the
+        new graph and the mapping from old vertices to new ones. 
+        """
+        shallow_copy = Graph()
+        mapping = {v: copy.copy(v) for v in self.__graph}
+        for vertex, neighbors in self.__graph.items():
+            shallow_copy.__graph[mapping[vertex]] = [mapping[n]
+                                                     for n in neighbors]
+        return shallow_copy, mapping
 
     def merge(self, main: Vertex, other: Vertex):
         adjacencies = self.__graph[main]
