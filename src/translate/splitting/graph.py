@@ -59,14 +59,39 @@ class Graph(Generic[Vertex]):
                 stack.extend([(False, n) for n in neighbors])
             return visited, order
 
+        def get_components():
+            parent = {v: v for v in self.__graph}
+            priority = {v: vertex_priority(v) if vertex_priority else 0
+                        for v in self.__graph}
+            def find_parent(vertex):
+                if parent[vertex] != parent[parent[vertex]]:
+                    parent[vertex] = find_parent(parent[vertex])
+                return parent[vertex]
+            def join(source, destination):
+                parent_source = find_parent(source)
+                parent_destination = find_parent(destination)
+                parent[parent_destination] = parent_source
+                priority[parent_source] = max(priority[parent_source],
+                                              priority[parent_destination])
+
+            for source, destinations in self.__graph.items():
+                for destination in destinations:
+                    join(source, destination)
+
+            components = [v for v in self.__graph if v == find_parent(v)]
+            components.sort(key=lambda v: priority[v])
+            return components
+
         order = []
         visited = []
-        vertices = self.__graph
-        if vertex_priority:
-            vertices = sorted(vertices, key=vertex_priority)
-        for vertex in vertices:
-            if vertex not in order:
-                visited, order = dfs(vertex, visited, order)
+        for starting_point in get_components():
+            assert starting_point not in order, ("Starting point of a "
+                                                 "component should not be "
+                                                 "visited before!")
+            visited, order = dfs(starting_point, visited, order)
+
+        for vertex in self.__graph:
+            assert vertex in order, "Missing some vertices in topological sort"
 
         return order
 
