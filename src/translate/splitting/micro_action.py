@@ -190,7 +190,7 @@ class Transition(AtomicActionPart):
 
 class MicroAction:
     def __init__(self):
-        self.__preconditions: Set[Condition] = set()
+        self.__preconditions: List[Condition] = []
         self.__transitions: List[Transition] = []
         self.__args = set()
 
@@ -200,7 +200,7 @@ class MicroAction:
 
     @property
     def preconditions(self):
-        return self.__preconditions.copy()  # deep copy?
+        return self.__preconditions.copy()  # Guaranteed to be an ordered list
 
     @property
     def has_precondition(self):
@@ -208,7 +208,7 @@ class MicroAction:
 
     @property
     def transitions(self):
-        return self.__transitions.copy() # deep copy?
+        return self.__transitions.copy()  # Guaranteed to be an ordered list
 
     @property
     def effects(self):
@@ -234,35 +234,31 @@ class MicroAction:
         return copy.copy(self)
 
     def add_precondition(self, condition: Condition):
-        self.__preconditions.add(condition)
+        self.__preconditions.append(condition)
+        self.__preconditions.sort(key=id)
         self.__args.update(condition.find_args())
         return self
 
     def add_transition(self, transition: Transition):
         self.__transitions.append(transition)
+        self.__transitions.sort(key=id)
         self.__args.update(transition.find_args())
         return self
 
     def is_threatened_by(self,
                          other: 'MicroAction',
                          distinct_args: Dict[str, List[str]]) -> bool:
-        parts = list(self.__preconditions) + self.__transitions
+        parts = self.__preconditions + self.__transitions
         return any(part.is_threatened_by(other_transition, distinct_args)
                    for other_transition in other.__transitions 
                    for part in parts)
 
-    def merge(self, previous: 'MicroAction') -> 'MicroAction':
-        # NOTE: In the ordered list of micro-actions, `previous` should
-        #       be placed before `self`.
-        invalid_conditions = list(chain(*(t.effects
-                                        for t in previous.transitions
-                                        if not t.has_condition)))
-        self.__preconditions = set(p
-                                   for p in self.__preconditions
-                                   if p.condition not in invalid_conditions)
-        self.__preconditions.update(previous.__preconditions)
-        self.__transitions.extend(previous.__transitions)
-        self.__args.update(previous.__args)
+    def merge(self, other: 'MicroAction') -> 'MicroAction':
+        conditions = set().union(self.__preconditions, other.__preconditions)
+        self.__preconditions = sorted(conditions, key=id)
+        self.__transitions.extend(other.__transitions)
+        self.__transitions.sort(key=id)
+        self.__args.update(other.__args)
         return self
 
     def update_partial_state(self,
@@ -292,10 +288,11 @@ class MicroAction:
         conditions.sort()
         conditions = "".join(conditions)
         preconditions = f"{indent}\t\t(and\n{conditions}{indent}\t\t)\n"
-        effects = f"{indent}\t\t(and\n"
+        effects = []
         for transition in self.__transitions:
-            effects += transition.to_string(indent + "\t\t\t")
-        effects += f"{indent}\t\t)\n"
+            effects.append(transition.to_string(indent + "\t\t\t"))
+        effects.sort()
+        effects = f"{indent}\t\t(and\n{''.join(effects)}{indent}\t\t)\n"
 
         output  = f"{indent}(:action {action_name}\n"
         output += f"{indent} :parameters ({args})\n"

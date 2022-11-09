@@ -15,7 +15,7 @@ class Graph(Generic[Vertex]):
     vertices.
     """
     def __init__(self, vertices: List[Vertex] = []):
-        self.__graph = {vertex: [] for vertex in vertices}
+        self.__graph = {vertex: set() for vertex in vertices}
 
     def __str__(self) -> str:
         return str(self.__graph)
@@ -26,19 +26,16 @@ class Graph(Generic[Vertex]):
 
     def add_edge(self, edge: Tuple[Vertex, Vertex]):
         source, destination = edge
-        self.__graph.setdefault(source, []).append(destination)
+        self.__graph.setdefault(source, set()).add(destination)
         return self
-
-    def neighbors(self, vertex: Vertex):
-        return self.__graph[vertex].copy()
 
     def make_acyclic(self, vertex_priority=None):
         order = {v: i
                  for i,v in enumerate(self.topological_order(vertex_priority))}
         for vertex in self.__graph.keys():
-            self.__graph[vertex] = [neighbor
+            self.__graph[vertex] = {neighbor
                                     for neighbor in self.__graph[vertex]
-                                    if order[neighbor] > order[vertex]]
+                                    if order[neighbor] > order[vertex]}
         return self
 
     def topological_order(self, vertex_priority=None) -> List[Vertex]:
@@ -52,7 +49,7 @@ class Graph(Generic[Vertex]):
                 if vertex in visited:
                     continue
                 visited.append(vertex)
-                neighbors = self.__graph[vertex]
+                neighbors = list(self.__graph[vertex])
                 if vertex_priority:
                     neighbors.sort(key=vertex_priority, reverse=True)
                 stack.append((True, vertex))
@@ -78,17 +75,26 @@ class Graph(Generic[Vertex]):
                 for destination in destinations:
                     join(source, destination)
 
-            components = [v for v in self.__graph if v == find_parent(v)]
-            components.sort(key=lambda v: priority[v])
+            components = {}
+            for vertex in self.__graph:
+                components.setdefault(find_parent(vertex), []).append(vertex)
+            components = [v for _, v in components.items()]
+            components.sort(key=lambda v: priority[find_parent(v[0])])
             return components
 
         order = []
         visited = []
-        for starting_point in get_components():
-            assert starting_point not in order, ("Starting point of a "
-                                                 "component should not be "
-                                                 "visited before!")
-            visited, order = dfs(starting_point, visited, order)
+        for component in get_components():
+            assert set(component).isdisjoint(order), ("New component is "
+                                                      "overlapped with "
+                                                      "currently visited "
+                                                      "nodes!")
+            if vertex_priority is not None:
+                component.sort(key=vertex_priority)
+            for vertex in component:
+                if vertex in order:
+                    continue
+                visited, order = dfs(vertex, visited, order)
 
         for vertex in self.__graph:
             assert vertex in order, "Missing some vertices in topological sort"
@@ -122,9 +128,9 @@ class Graph(Generic[Vertex]):
                            or self.is_connected(vertex2, vertex1))
         # reverting back the removed edges
         if v1_to_v2:
-            self.__graph[vertex1].append(vertex2)
+            self.__graph[vertex1].add(vertex2)
         if v2_to_v1:
-            self.__graph[vertex2].append(vertex1)
+            self.__graph[vertex2].add(vertex1)
 
         return becomes_a_cycle
 
@@ -137,22 +143,21 @@ class Graph(Generic[Vertex]):
         shallow_copy = Graph()
         mapping = {v: copy.copy(v) for v in self.__graph}
         for vertex, neighbors in self.__graph.items():
-            shallow_copy.__graph[mapping[vertex]] = [mapping[n]
-                                                     for n in neighbors]
+            shallow_copy.__graph[mapping[vertex]] = {mapping[n]
+                                                     for n in neighbors}
         return shallow_copy, mapping
 
     def merge(self, main: Vertex, other: Vertex):
         adjacencies = self.__graph[main]
         for destination in self.__graph[other]:
-            if destination != main and destination not in adjacencies:
-                adjacencies.append(destination)
+            if destination != main:
+                adjacencies.add(destination)
         del self.__graph[other]
         for source, adjacencies in self.__graph.items():
             if source == main:
-                if other in adjacencies:
-                    adjacencies.remove(other)
+                adjacencies.discard(other)
                 continue
-            for i in range(len(adjacencies)):
-                if adjacencies[i] == other:
-                    adjacencies[i] = main
+            if other in adjacencies:
+                adjacencies.remove(other)
+                adjacencies.add(main)
         return self

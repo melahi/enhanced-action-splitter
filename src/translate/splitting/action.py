@@ -1,5 +1,5 @@
-from typing import Iterable, List, Set, Dict
-from itertools import chain, combinations, permutations
+from typing import Iterable, List, Set, Dict, Tuple
+from itertools import chain, combinations, permutations, product
 from functools import reduce
 from copy import deepcopy
 
@@ -12,6 +12,7 @@ from .common import get_conditions
 from .knowledge import Knowledge
 from .micro_action import Condition, Transition, MicroAction
 from .graph import Graph
+from .beam_search import NodeAbstract, beam_search
 
 
 BEAM_SEARCH_WIDTH = 400
@@ -64,20 +65,15 @@ class Action:
                          for i, m in enumerate(self.__micro_actions))
 
     def __split_action(self, action, size_threshold) -> List[MicroAction]:
-        preconditions = get_conditions(action.precondition)
-        parameters = [parameter.name for parameter in action.parameters]
-        influential_order = self.__influential_order(parameters, preconditions)
-        conditions = self.__order_conditions(preconditions,
-                                             influential_order,
-                                             size_threshold)
+        conditions = {Condition(c) for c in get_conditions(action.precondition)}
+        preconditions = [MicroAction().add_precondition(c) for c in conditions]
         transitions = self.__get_transitions(action.effects)
-        preconditions = {Condition(p) for p in preconditions}
-        transitions = self.__prepare_transitions(preconditions, transitions)
-        # micro_actions = conditions + transitions
-        micro_actions = self.__order_micro_actions(conditions, transitions)
-        # micro_actions = self.__merge_micro_actions(micro_actions, 0)
-        micro_actions = self.__complete_micro_actions(micro_actions,
-                                                      preconditions)
+        transitions = self.__prepare_transitions(transitions)
+        # micro_actions = preconditions + transitions
+        micro_actions = self.__order_micro_actions(preconditions,
+                                                   transitions,
+                                                   size_threshold)
+        micro_actions = self.__complete_micro_actions(micro_actions, conditions)
         return micro_actions
 
     def __get_transitions(self, raw_effects):
@@ -123,161 +119,18 @@ class Action:
                 transitions.append(Transition(conditions, effect, set()))
         return transitions
 
-    def __influential_order(self,
-                            variables: List[str],
-                            conditions: List[Literal]) -> List[str]:
-        """Orders the vertices based on their influential relations"""
-
-        # Filter out any condition except positive literals
-        conditions = filter(lambda condition: isinstance(condition, Atom),
-                            conditions)
-        predicates = [(atom.predicate, atom.args) for atom in conditions]
-
-        # Constructing the influential graph
-        graph = Graph(variables)
-        relations = list(chain(*[self.__knowledge.get_relations(predicate)
-                                 for predicate in predicates]))
-        graph = reduce(Graph.add_edge, relations, graph)
-
-        possible_values = (self
-                           .__knowledge
-                           .single_count_estimate(self.__args, conditions))
-        def priority(vertex: str) -> int:
-            return (len([r for r in relations if r[0] == vertex]),
-                    len([r for r in relations if r[1] == vertex]),
-                    -1 * possible_values[vertex])
-
-        return graph.topological_order(vertex_priority=priority)
-
-    def __order_conditions(self,
-                           conditions: List[Literal],
-                           influential_order: List[str],
-                           size_threshold: int) -> List[MicroAction]:
-        conditions = conditions.copy()
-        def get_args(literal: Literal):
-            return [a.name if isinstance(a, TypedObject) else a
-                    for a in literal.args]
-        def get_variables(literal: Literal):
-            return [a for a in get_args(literal) if a.startswith("?")]
-        influential_rank = {v: i for i, v in enumerate(influential_order)}
-        appearance_rank = {v: float('inf') for v in influential_order}
-        def get_omittable_args(literal: Literal):
-            predicate = (literal.predicate, get_args(literal))
-            return self.__knowledge.omittable_arguments(predicate)
-
-        result: List[MicroAction] = []
-        def get_decision(new_condition: Literal):
-            conditions = [c.condition for c in result[-1].preconditions]
-            conditions.append(new_condition)
-            variables = {v
-                         for l in conditions
-                         for v in get_variables(l)
-                         if appearance_rank[v] >= len(result) - 1}
-            dependencies: Dict[str, List[Set[str]]] = {}
-            for condition in conditions:
-                if not isinstance(condition, Atom):
-                    continue
-                condition_vars = set(get_variables(condition)) & variables
-                for omittable in get_omittable_args(condition):
-                    if omittable not in condition_vars:
-                        continue
-                    dependency = condition_vars - {omittable}
-                    dependencies.setdefault(omittable, []).append(dependency)
-            def decide(determined: Set[str]) -> Set[str]:
-                if variables == determined:
-                    return set()
-                for dependent in dependencies:
-                    if dependent in determined:
-                        continue
-                    for dependency in dependencies[dependent]:
-                        if dependency.issubset(determined):
-                            determined.add(dependent)
-                best_decisions = variables - determined
-                for variable in variables - determined:
-                    # I've assumed `variable` is in `dependencies`;
-                    # before calling this function all variable not in
-                    # the dictionary should be added to the `determined`
-                    # set.
-                    for dependency in dependencies[variable]:
-                        decisions = ((dependency - determined)
-                                     | decide(  determined
-                                              | dependency
-                                              | {variable}))
-                        if len(decisions) < len(best_decisions):
-                            best_decisions = decisions
-                return best_decisions
-            decisions = {v  for v in variables if v not in dependencies}
-            return decisions | decide(decisions.copy())
-        def get_literal_info(literal: Literal):
-            variables = get_variables(literal)
-            ranks = sorted((appearance_rank[v], influential_rank[v])
-                           for v in variables)
-            static_weight = (    self.__knowledge.is_static(literal.predicate)
-                             and ranks
-                             and ranks[-1][0] != float('inf'))
-            negative_weight = (    isinstance(literal, NegatedAtom)
-                               and ranks
-                               and ranks[-1][0] == float('inf')) #Not defined
-            return (bool(negative_weight), not static_weight, ranks)
-        def select_condition(condition: Literal):
-            time = len(result) - 1
-            for variable in get_variables(condition):
-                appearance_rank[variable] = min(time,
-                                                appearance_rank[variable])
-            conditions.remove(condition)
-            result[-1].add_precondition(Condition(condition))
-
-        while conditions:
-            result.append(MicroAction())
-            current_size = float('inf')
-            current_decisions = float('inf')
-            while True:
-                best = ((True, True, [(float('inf'), float('inf'))]), 0, 0, None)
-                for condition in conditions:
-                    new_variables = get_variables(condition)
-                    if (    result[-1].args
-                        and new_variables
-                        and result[-1].args.isdisjoint(new_variables)):
-                        continue
-                    new_args = result[-1].args.union(new_variables)
-                    new_size = self.__count_estimate(new_args,
-                                                       result[-1].preconditions
-                                                     | {Condition(condition)})
-                    if new_size > max(size_threshold, current_size):
-                        continue
-                    new_decisions = len(get_decision(condition))
-                    if new_decisions > max(current_decisions,
-                                           DECISION_THRESHOLD):
-                        continue
-                    key = get_literal_info(condition)
-                    if key < best[0]:
-                        best = (key, new_decisions, new_size, condition)
-                if best[3] is None:
-                    # Can't find any suitable condition
-                    break
-                current_size = best[2]
-                current_decisions = best[1]
-                select_condition(best[3])
-        return result
-
     def __prepare_transitions(self,
-                              partial_state: Set[Condition],
                               transitions: List[Transition]) -> List[MicroAction]:
-        """Prepares the ordered micro-action list of transitions
+        """Prepares the transitions
 
-        To complete the actions' definition, we need to specify its
-        transitions. Here, we try to complete -as much as possible- the
-        related information needed by each transition. It is also
-        important to consider the possibility that a transition affect
-        other transition's condition. This relation might even be cyclic.
-        For example, one transition might affect the condition of another
-        one, and that one might affect the first one's condition. Here,
-        we find those transitions and merge them.
-        Finally the ordered list of completed transitions will be
-        returned as a list of micro-actions.
+        It is important to consider the possibility that a transition
+        affect other transition's condition. This relation might be
+        cyclic. For example, one transition might affect the condition
+        of another one, and that one might affect the first one's
+        condition. Here, we find those transitions and merge them.
 
         Returns:
-            List[MicroAction]: Ordered transitions
+            List[MicroAction]: List of transitions
         """
         # Constructing the ordered graph
         graph = {transition: [] for transition in transitions}
@@ -292,128 +145,234 @@ class Action:
                               component,
                               MicroAction())
                        for component in components]
-        statics = {c
-                   for c in partial_state
-                   if self.__knowledge.is_static(c.condition.predicate)}
-        statics = sorted(statics, key=lambda c: c.to_string(""))
-        for transition in transitions:
-            transition = self.__complete_transition(transition, statics)
         return transitions
 
     def __order_micro_actions(self,
                               preconditions: List[MicroAction],
-                              transitions: List[MicroAction]):
-        for id, micro_action in enumerate(preconditions + transitions):
-            micro_action.id = id
-        ids = [m.id for m in preconditions + transitions]
+                              transitions: List[MicroAction],
+                              size_threshold: int):
+
+        def get_args(literal: Literal):
+            return [a.name if isinstance(a, TypedObject) else a
+                    for a in literal.args]
+        def is_variable(argument: str):
+            return argument.startswith("?")
+        def get_omittable_variables(literal: Literal):
+            predicate = (literal.predicate, get_args(literal))
+            return [a
+                    for a in self.__knowledge.omittable_arguments(predicate)
+                    if is_variable(a)]
+        omittable_count = {c: len(get_omittable_variables(c.condition))
+                           for p in preconditions
+                           for c in p.preconditions}
+
+        memoized_estimate = {}
+        def count_estimate(micro_action: MicroAction) -> int:
+            key = (frozenset(micro_action.args),
+                   tuple(micro_action.preconditions))
+            if key not in memoized_estimate:
+                memoized_estimate[key] = self.__count_estimate(key[0], key[1])
+            return memoized_estimate[key]
+
+        def priority(micro_action: MicroAction):
+            # Priority criteria:
+            # 1. preconditions with more omittable positions,
+            # 2. more preconditions,
+            # 3. less number of possible ground instances.
+            return (sum([omittable_count[p]
+                            for p in micro_action.preconditions]),
+                    len(micro_action.preconditions),
+                    -1 * count_estimate(micro_action))
+
+        class Candidate(NodeAbstract):
+            def __init__(self, graph: Graph[MicroAction]):
+                self.__graph = graph
+                self.__order = graph.topological_order(priority)
+                self.__cost = self.__calculate_cost()
+                self.__key = ((tuple(m.preconditions), tuple(m.transitions))
+                              for m in self.__order)
+
+            def __hash__(self) -> int:
+                return hash(self.__key)
+
+            def __eq__(self, __o: 'Candidate') -> bool:
+                return self.__key == __o.__key
+
+            def __lt__(self, __o: 'Candidate') -> bool:
+                return self.__cost < __o.__cost
+
+            @property
+            def order(self):
+                return self.__order.copy()
+
+            def neighbors(self) -> List['Candidate']:
+                result = []
+                for first, second in combinations(self.__order, r=2):
+                    if self.__are_mergeable(first, second):
+                        result.append(self.__merge(first, second))
+                return result
+
+            def __calculate_cost(self):
+                # Cost criteria:
+                # 1. spans of connected components of micro-action with
+                #    preconditions,
+                # 2. number of micro-actions with preconditions,
+                # 3. total number of micro-actions,
+                # 4. the estimate count of grounded actions.
+
+                # Finding components
+                components = []
+                for micro_action in self.__order:
+                    if not micro_action.has_precondition:
+                        continue
+                    new_components = []
+                    new_component = micro_action.args
+                    for component in components:
+                        if new_component.isdisjoint(component):
+                            new_components.append(component)
+                        else:
+                            new_component.update(component)
+                    components = new_components + [new_component]
+
+                spans = []
+                for component in components:
+                    first = len(self.__order)
+                    last = 0
+                    for i, micro_action in enumerate(self.__order):
+                        if (   not micro_action.has_precondition
+                            or micro_action.args.isdisjoint(component)):
+                            continue
+                        first = min(first, i)
+                        last = max(last, i)
+                    spans.append(last - first + 1)
+                spans.sort(reverse=True)
+
+                preconditions_count = 0
+                ground_estimate = 0
+                for micro_action in self.__order:
+                    ground_estimate += count_estimate(micro_action)
+                    if micro_action.has_precondition:
+                        preconditions_count += 1
+
+                return (spans,
+                        preconditions_count,
+                        len(self.__order),
+                        ground_estimate)
+
+            def __are_mergeable(self, first: MicroAction, second: MicroAction):
+                if self.__graph.is_merging_make_a_cycle(first, second):
+                    return False
+                if count_estimate(first.copy().merge(second)) > size_threshold:
+                    return False
+                if (    first.has_precondition
+                    and second.has_precondition
+                    and not first.args.isdisjoint(second.args)):
+                    return True
+                if (    first.args.issubset(second.args)
+                    and not first.has_precondition):
+                    return True
+                if (    second.args.issubset(first.args)
+                    and not second.has_precondition):
+                    return True
+                return False
+
+            def __merge(self, first: MicroAction, second: MicroAction):
+                new_graph, mapping = self.__graph.clone()
+                first, second = mapping[first], mapping[second]
+                first.merge(second)
+                new_graph.merge(first, second)
+                return Candidate(new_graph)
+
+        def build_helper_graph() -> Graph[MicroAction]:
+            def is_helping(subject: MicroAction, object: MicroAction):
+                for condition in [p.condition for p in subject.preconditions]:
+                    if not (object
+                            .args
+                            .isdisjoint(get_omittable_variables(condition))):
+                        return True
+                return False
+
+            graph = Graph(preconditions + transitions)
+            graph = reduce(Graph.add_edge,
+                           filter(lambda edge: is_helping(*edge),
+                                  permutations(preconditions, r=2)),
+                           graph)
+            graph.make_acyclic(vertex_priority=priority)
+            return graph
 
         def prepare_graph() -> Graph[MicroAction]:
-            graph = Graph(preconditions + transitions)
-            
-            # Add edges for the precondition vertices.
-            # NOTE: We have assumed the order of preconditions specifies
-            #       the order of determining the arguments.
-            determined: Dict[str, MicroAction] = {}
-            for micro_action in preconditions + transitions:
-                for arg in micro_action.args:
-                    if arg in determined:
-                        graph.add_edge((determined[arg], micro_action))
-                    elif micro_action in preconditions:
-                        determined[arg] = micro_action
-            distinct_args = self.__distinct_args
-            for transition in transitions:
-                for other in (preconditions + transitions):
-                    if other == transition:
-                        continue
-                    if other.is_threatened_by(transition, distinct_args):
-                        graph.add_edge((other, transition))
+            graph = build_helper_graph()
+
+            # Add edges to prevent placing transitions before determining their
+            # parameters.
+            graph = reduce(Graph.add_edge,
+                           filter(lambda edge:
+                                    not edge[0].args.isdisjoint(edge[1].args),
+                                  product(preconditions, transitions)),
+                           graph)
+
+            # Add edges correspond to threatening relations
+            def threatening_relation(edge: Tuple[MicroAction, MicroAction]):
+                if edge[0] == edge[1]:
+                    return False
+                return edge[0].is_threatened_by(edge[1], self.__distinct_args)
+            graph = reduce(Graph.add_edge,
+                           filter(threatening_relation,
+                                  product(preconditions + transitions,
+                                          transitions)),
+                           graph)
             return graph
 
-        def get_micro_action_by_id(micro_actions: List[MicroAction], id):
-            for micro_action in micro_actions:
-                if id == micro_action.id:
-                    return micro_action
-            return None
+        initial_candidate = Candidate(prepare_graph())
+        founded_candidate = beam_search(initial_candidate, BEAM_SEARCH_WIDTH)
+        return founded_candidate.order
 
-        def merge(graph: Graph[MicroAction], pervious, next):
-            graph = deepcopy(graph)
-            previous = get_micro_action_by_id(graph.vertices, pervious.id)
-            next = get_micro_action_by_id(graph.vertices, next.id)
-            next.merge(previous)
-            graph.merge(next, previous)
-            return graph
+    def __complete_micro_actions(self,
+                                 micro_actions: List[MicroAction],
+                                 partial_state: Set[Condition]):
+        """Add related conditions to each micro-action
 
-        def are_mergeable(graph, pervious, next):
-            if (    not pervious.args.issuperset(next.args)
-                and not next.args.issuperset(pervious.args)):
-                return False
-            return not graph.is_merging_make_a_cycle(pervious, next)
+        Find micro-action's related conditions and add them -as much as
+        possible- to it. Related conditions are:
 
-        def evaluation(graph: Graph[MicroAction]):
-            preconditions = 0
-            for vertex in graph.vertices:
-                preconditions += 1 if vertex.has_precondition else 0
-            return (preconditions, len(graph.vertices))
-
-        def beam_search(width: int, graph: Graph[MicroAction]): 
-            candidates: List[Graph[MicroAction]] = [graph]
-            for id in ids:
-                i = 0
-                while i < len(candidates):
-                    graph = candidates[i]
-                    i += 1
-                    current = get_micro_action_by_id(graph.vertices, id)
-                    if current is None:
+        1. static conditions overlapped with transition's
+           arguments which doesn't increase the number of its
+           ground instances, 
+        2. conditions with the arguments which are the subset
+           of the transition's arguments.
+        """
+        def complete(conditions: Set[Condition], micro_action: MicroAction):
+            # Sort conditions to make our method deterministic (reproducible)
+            conditions = sorted(conditions, key=lambda c: c.to_string(""))
+            level_off = False
+            current_size = self.__count_estimate(micro_action.args,
+                                                 micro_action.preconditions)
+            while not level_off:
+                level_off = True
+                best = (-1, None)
+                for condition in conditions:
+                    args = condition.find_args()
+                    if micro_action.args.isdisjoint(args):
                         continue
-                    for vertex in graph.vertices:
-                        if id <= vertex.id:
-                            continue
-                        if are_mergeable(graph, vertex, current):
-                            candidates.append(merge(graph, vertex, current))
-                # print(f"{id}/{len(ids)} -> {len(candidates)}")
-                candidates = sorted(candidates, key=evaluation)[:width]
-            return candidates[0]
+                    new_args = micro_action.args | args
+                    new_conditions = (  set(micro_action.preconditions)
+                                      | {condition})
+                    new_size = self.__count_estimate(new_args, new_conditions)
+                    if new_size <= current_size and new_size > best[0]:
+                        best = (new_size, condition)
+                if best[1] is not None:
+                    micro_action.add_precondition(best[1])
+                    conditions.remove(best[1])
+                    level_off = False
+                    current_size = best[0]
+            return micro_action
 
-        graph = prepare_graph()
-        graph = beam_search(BEAM_SEARCH_WIDTH, graph)
-
-        count = {m: self.__count_estimate(m.args, m.preconditions)
-                 for m in graph.vertices}
-        def priority(micro_action: MicroAction) -> List[int]:
-            # Priority criteria:
-            # 1. Less number of possible grounded instance,
-            # 2. More preconditions and less transitions
-            return (-1 * count[micro_action],
-                      len(micro_action.preconditions)
-                    - len(micro_action.transitions))
-        return graph.topological_order(vertex_priority=priority)
-
-    def __merge_micro_actions(self,
-                              micro_actions: List[MicroAction],
-                              size_threshold:int):
-        def should_be_merged(action1: MicroAction, action2: MicroAction):
-            if len(action1.args) < len(action2.args):
-                return should_be_merged(action2, action1)
-            if action1.args.issuperset(action2.args):
-                return True
-            if action1.args.isdisjoint(action2.args) or not size_threshold:
-                return False
-            conditions = action1.preconditions.union(action2.preconditions)
-            estimate1 = self.__count_estimate(action1.args,
-                                              action1.preconditions)
-            estimate2 = self.__count_estimate(action2.args,
-                                              action2.preconditions)
-            args = action1.args.union(action2.args)
-            estimate = self.__count_estimate(args, conditions)
-            return estimate <= max(size_threshold, estimate1 + estimate2)
-
-        processed = [micro_actions[0]]
-        for micro_action in micro_actions[1:]:
-            while processed and should_be_merged(processed[-1], micro_action):
-                micro_action.merge(processed[-1])
-                del processed[-1]
-            processed.append(micro_action)
-        return processed
+        for micro_action in micro_actions:
+            complete(partial_state, micro_action)
+            partial_state = (micro_action
+                             .update_partial_state(partial_state,
+                                                   self.__distinct_args))
+        return micro_actions
 
     def __chain_micro_actions(self, default_values):
         assert self.__micro_actions,  "Expects one or more micro-actions"
@@ -466,53 +425,6 @@ class Action:
                           shared_micro_actions[0], shared_micro_actions[1:])
 
         return self
-
-    def __complete_transition(self,
-                              transition: MicroAction,
-                              conditions: Iterable[Condition]) -> MicroAction:
-        """Add related conditions to the given Transition
-
-        Find transition's related conditions and add them to it. Related
-        conditions are
-        1. static conditions overlapped with transition's
-           arguments, 
-        2. conditions with the arguments which are the subset
-           of the transition's arguments.
-        """
-        conditions = conditions.copy()
-        level_off = False
-        current_size = self.__count_estimate(transition.args, [])
-        while not level_off:
-            level_off = True
-            best = (-1, None)
-            for condition in conditions:
-                args = condition.find_args()
-                if transition.args.isdisjoint(args):
-                    continue
-                new_args = transition.args | args
-                new_conditions = transition.preconditions | {condition}
-                new_size = self.__count_estimate(new_args, new_conditions)
-                if new_size <= current_size and new_size > best[0]:
-                    best = (new_size, condition)
-            if best[1] is not None:
-                transition.merge(MicroAction().add_precondition(best[1]))
-                conditions.remove(best[1])
-                level_off = False
-                current_size = best[0]
-        return transition
-
-    def __complete_micro_actions(self,
-                                 micro_actions: List[MicroAction],
-                                 partial_state: Iterable[Condition]):
-        partial_state = partial_state.copy()
-        for micro_action in micro_actions:
-            for condition in partial_state:
-                if micro_action.args.issuperset(condition.find_args()):
-                    micro_action.add_precondition(condition)
-            partial_state = (micro_action
-                             .update_partial_state(partial_state,
-                                                   self.__distinct_args))
-        return micro_actions
 
     def __count_estimate(self, args, conditions: Iterable[Condition]):
         args = [a for a in self.__args if a.name in args]
