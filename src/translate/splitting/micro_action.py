@@ -234,12 +234,16 @@ class MicroAction:
         return copy.copy(self)
 
     def add_precondition(self, condition: Condition):
+        if condition in self.__preconditions:
+            return self
         self.__preconditions.append(condition)
         self.__preconditions.sort(key=id)
         self.__args.update(condition.find_args())
         return self
 
     def add_transition(self, transition: Transition):
+        if transition in self.__transitions:
+            return self
         self.__transitions.append(transition)
         self.__transitions.sort(key=id)
         self.__args.update(transition.find_args())
@@ -256,8 +260,8 @@ class MicroAction:
     def merge(self, other: 'MicroAction') -> 'MicroAction':
         conditions = set().union(self.__preconditions, other.__preconditions)
         self.__preconditions = sorted(conditions, key=id)
-        self.__transitions.extend(other.__transitions)
-        self.__transitions.sort(key=id)
+        transitions = set().union(self.__transitions, other.__transitions)
+        self.__transitions = sorted(transitions, key=id)
         self.__args.update(other.__args)
         return self
 
