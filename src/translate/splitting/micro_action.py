@@ -152,10 +152,9 @@ class Transition(AtomicActionPart):
         # is like our negative effect is threatened by another
         # positive effect, so the positive effect should be placed
         # after the negative one.
-        if (    len(self.__effects) == 1
-            and self.__effects[0].negated
-            and len(transition.__effects) == 1
-            and not transition.__effects[0].negated
+        if len(self.__effects) != 1 or not self.__effects[0].negated:
+            return False
+        if (    not transition.__main_effect.negated
             and self._are_possibly_the_same(self.__effects[0],
                                             transition.__effects[0],
                                             distinct_args)):

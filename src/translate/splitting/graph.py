@@ -104,7 +104,7 @@ class Graph(Generic[Vertex]):
     def is_connected(self, source: Vertex, destination: Vertex) -> bool:
         visited = []
         queue = [source]
-        while not queue:
+        while queue:
             current = queue.pop()
             if current in visited:
                 continue
