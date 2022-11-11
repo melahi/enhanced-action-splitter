@@ -1,26 +1,8 @@
 from typing import List, Set, NewType
-from abc import ABC, abstractmethod
+from abstract_node import AbstractNode
 
 
-class NodeAbstract(ABC):
-    @abstractmethod
-    def __hash__(self) -> int:
-        raise NotImplementedError
-    
-    @abstractmethod
-    def __eq__(self, __o: 'Node') -> bool:
-        raise NotImplementedError
-
-    @abstractmethod
-    def __lt__(self, __o: 'Node') -> bool:
-        raise NotImplementedError
-
-    @abstractmethod
-    def neighbors(self) -> List['Node']:
-        raise NotImplementedError
-
-
-Node = NewType('Node', NodeAbstract)
+Node = NewType('Node', AbstractNode)
 
 
 def beam_search(starting_node: Node, width: int) -> Node:
