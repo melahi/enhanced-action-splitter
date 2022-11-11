@@ -73,6 +73,7 @@ class Action:
         micro_actions = self.__order_micro_actions(preconditions,
                                                    transitions,
                                                    size_threshold)
+        micro_actions = self.__prevent_deletion_after_adding(micro_actions)
         micro_actions = self.__complete_micro_actions(micro_actions, conditions)
         return micro_actions
 
@@ -201,6 +202,13 @@ class Action:
             def __lt__(self, __o: 'Candidate') -> bool:
                 return self.__cost < __o.__cost
 
+            def __str__(self):
+                graph = {}
+                for i, micro_action in enumerate(self.__order):
+                    graph[i] = [self.__order.index(n)
+                                for n in self.__graph.neighbors(micro_action)]
+                return str(graph)
+
             @property
             def order(self):
                 return self.__order.copy()
@@ -326,6 +334,14 @@ class Action:
         initial_candidate = Candidate(prepare_graph())
         founded_candidate = beam_search(initial_candidate, BEAM_SEARCH_WIDTH)
         return founded_candidate.order
+
+    def __prevent_deletion_after_adding(self, micro_actions: List[MicroAction]):
+        transitions_up_to_now = []
+        for micro_action in micro_actions:
+            micro_action.prevent_deletion_after_adding(transitions_up_to_now,
+                                                       self.__distinct_args)
+            transitions_up_to_now += micro_action.transitions
+        return micro_actions
 
     def __complete_micro_actions(self,
                                  micro_actions: List[MicroAction],

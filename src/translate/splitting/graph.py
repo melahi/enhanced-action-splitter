@@ -29,6 +29,9 @@ class Graph(Generic[Vertex]):
         self.__graph.setdefault(source, set()).add(destination)
         return self
 
+    def neighbors(self, vertex: Vertex):
+        return self.__graph[vertex].copy()
+
     def make_acyclic(self, vertex_priority=None):
         order = {v: i
                  for i,v in enumerate(self.topological_order(vertex_priority))}

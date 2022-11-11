@@ -1,8 +1,8 @@
 import copy
-from itertools import chain
+from itertools import product
 from typing import List, Set, Dict
 
-from pddl.conditions import Literal
+from pddl.conditions import Literal, Atom, NegatedAtom
 from pddl.pddl_types import TypedObject
 
 from .common import literal_to_string
@@ -147,20 +147,61 @@ class Transition(AtomicActionPart):
                                                distinct_args):
                     return True
 
-        # Delete effect should not be after the add effect.
-        # It somehow might be confusing because the interpretation
-        # is like our negative effect is threatened by another
-        # positive effect, so the positive effect should be placed
-        # after the negative one.
-        if len(self.__effects) != 1 or not self.__effects[0].negated:
-            return False
-        if (    not transition.__main_effect.negated
-            and self._are_possibly_the_same(self.__effects[0],
-                                            transition.__effects[0],
-                                            distinct_args)):
-            return True
+#         # Delete effect should not be after the add effect.
+#         # It somehow might be confusing because the interpretation
+#         # is like our negative effect is threatened by another
+#         # positive effect, so the positive effect should be placed
+#         # after the negative one.
+#         if len(self.__effects) != 1 or not self.__effects[0].negated:
+#             return False
+#         if (    not transition.__main_effect.negated
+#             and self._are_possibly_the_same(self.__effects[0],
+#                                             transition.__effects[0],
+#                                             distinct_args)):
+#             return True
 
         return False
+
+    def prevent_deletion_after_adding(self,
+                                      previous_transitions: List['Transition'],
+                                      distinct_args) -> List['Transition']:
+        """ Generates new transitions to prevent deletion of already added
+            effects
+
+            Given the added effects, this function checks if it deletes one
+            of those; in that case, it generates new transitions with some
+            conditions to prevent the deletion of those effects.
+        """
+        if isinstance(self.__main_effect, Atom):
+            return [self]
+
+        assert len(self.__effects) == 1, ("Expected only one effect for "
+                                          "transitions without 'add effects'!")
+
+        preventing_conditions = []
+        for previous in previous_transitions:
+            if not isinstance(previous.__main_effect, Atom):
+                continue
+            if self._are_possibly_the_same(self.__main_effect,
+                                           previous.__main_effect,
+                                           distinct_args):
+                if self.__conditions != previous.__conditions:
+                    raise NotImplementedError("We don't support this case!")
+                preventing_condition = []
+                for arg1, arg2 in zip(self.__main_effect.args,
+                                      previous.__main_effect.args):
+                    preventing_condition.append(NegatedAtom("=", [arg1, arg2]))
+                preventing_conditions.append(preventing_condition)
+
+        if not preventing_conditions:
+            return [self]
+
+        new_effects = []
+        for prevention in product(*preventing_conditions):
+            new_effects.append(Transition(self.__conditions + list(prevention),
+                                          self.__main_effect,
+                                          self.__variables_ids))
+        return new_effects
 
     def to_string(self, indent) -> str:
         output = ""
@@ -262,6 +303,18 @@ class MicroAction:
         transitions = set().union(self.__transitions, other.__transitions)
         self.__transitions = sorted(transitions, key=id)
         self.__args.update(other.__args)
+        return self
+
+    def prevent_deletion_after_adding(self,
+                                      previous_transitions: List[Transition],
+                                      distinct_args):
+        new_transitions = []
+        for transition in self.__transitions:
+            (new_transitions
+             .extend(transition
+                     .prevent_deletion_after_adding(previous_transitions,
+                                                    distinct_args)))
+        self.__transitions = new_transitions
         return self
 
     def update_partial_state(self,
