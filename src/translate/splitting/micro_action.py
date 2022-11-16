@@ -315,6 +315,7 @@ class MicroAction:
                      .prevent_deletion_after_adding(previous_transitions,
                                                     distinct_args)))
         self.__transitions = new_transitions
+        self.__args.update(*[t.find_args() for t in new_transitions])
         return self
 
     def update_partial_state(self,

@@ -20,6 +20,9 @@ class Graph(Generic[Vertex]):
     def __str__(self) -> str:
         return str(self.__graph)
 
+    def __contains__(self, vertex: Vertex):
+        return vertex in self.__graph
+
     @property
     def vertices(self):
         return [*self.__graph]
@@ -31,6 +34,14 @@ class Graph(Generic[Vertex]):
 
     def neighbors(self, vertex: Vertex):
         return self.__graph[vertex].copy()
+
+    def remove_vertex(self, vertex: Vertex):
+        if vertex not in self.__graph:
+            return self
+        self.__graph.pop(vertex)
+        for _, neighbors in self.__graph.items():
+            neighbors.discard(vertex)
+        return self
 
     def make_acyclic(self, vertex_priority=None):
         order = {v: i
