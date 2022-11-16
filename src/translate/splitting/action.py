@@ -73,7 +73,6 @@ class Action:
         micro_actions = self.__order_micro_actions(preconditions,
                                                    transitions,
                                                    size_threshold)
-        micro_actions = self.__prevent_deletion_after_adding(micro_actions)
         micro_actions = self.__complete_micro_actions(micro_actions,
                                                       preconditions)
         return micro_actions
@@ -141,7 +140,7 @@ class Action:
                 graph[transition1].append(transition2)
 
         components = get_sccs_adjacency_dict(graph)
-   
+
         transitions = [reduce(lambda micro_action, transition:
                                  micro_action.add_transition(transition),
                               component,
@@ -185,7 +184,7 @@ class Action:
             for transition2 in transitions:
                 if transition1 == transition2:
                     break
-                assert not transition2.is_threatened_by(transition1,
+                assert not transition1.is_threatened_by(transition2,
                                                         distinct_args),\
                        "We assume that earlier transitions do not threats "\
                        "later ones!"
@@ -398,14 +397,6 @@ class Action:
         initial = Candidate([MicroAction()], preconditions, transitions)
         best = exhaustive_search(initial)
         return best.ordered_micro_actions()
-
-    def __prevent_deletion_after_adding(self, micro_actions: List[MicroAction]):
-        transitions_up_to_now = []
-        for micro_action in micro_actions:
-            micro_action.prevent_deletion_after_adding(transitions_up_to_now,
-                                                       self.__distinct_args)
-            transitions_up_to_now += micro_action.transitions
-        return micro_actions
 
     def __complete_micro_actions(self,
                                  micro_actions: List[MicroAction],
