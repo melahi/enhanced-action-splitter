@@ -257,13 +257,18 @@ class Action:
             def __construct_dependency_graph(self):
                 determined = set().union(*[m.args for m in self.__micro_actions])
                 def is_helping(subject: Condition, object: Condition):
-                    if not isinstance(subject, Atom):
+                    if not isinstance(subject.condition, Atom):
                         return False
                     determinable_vars = get_omittable_variables(subject)
                     determinable_vars = set(determinable_vars) - determined
                     clueless_vars = object.find_args() - determined
-                    if isinstance(object, Atom):
-                        clueless_vars -= get_omittable_variables(object)
+                    if isinstance(object.condition, Atom):
+                        clueless_vars -= set(get_omittable_variables(object))
+                    elif not clueless_vars.isdisjoint(subject.find_args()):
+                        # Any positive literal/condition has higher priority
+                        # to determine the value of a variable comparing to
+                        # a negative literal/condition.
+                        return True
 
                     # At most one variable of the `determinable_vars` can
                     # be determined
@@ -351,7 +356,9 @@ class Action:
                             continue
                         temp = new_micro_action.copy()
                         temp.add_precondition(static_condition)
-                        if count_estimate(temp) <= size_threshold:
+                        estimate = count_estimate(temp)
+                        if estimate <= size_threshold:
+                            size_threshold = estimate
                             new_micro_action = temp
                             # Imposing a new condition/constraint might limit
                             # the possibilities so we can add some other
