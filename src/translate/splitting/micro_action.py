@@ -250,6 +250,8 @@ class MicroAction:
     def is_threatened_by(self,
                          other: 'MicroAction',
                          distinct_args: Dict[str, List[str]]) -> bool:
+        if self == other:
+            return False
         parts = self.__preconditions + self.__transitions
         return any(part.is_threatened_by(other_transition, distinct_args)
                    for other_transition in other.__transitions 
