@@ -20,7 +20,7 @@ from .task_to_string import output
 from .plan_merger import main as plan_merger
 
 
-SIZE_THRESHOLD = 100000
+SIZE_THRESHOLD = 10000
 print("SIZE THRESHOLD:", SIZE_THRESHOLD)
 
 

@@ -15,12 +15,12 @@ from .abstract_node import AbstractNode
 from .random_walk import random_walk
 
 
-BEAM_SEARCH_WIDTH = 400
-print("BEAM_SEARCH_WIDTH:", BEAM_SEARCH_WIDTH)
-DECISION_THRESHOLD = 2
-print("DECISION THRESHOLD:", DECISION_THRESHOLD)
-RANDOM_WALKS_COUNT = 10000
-print("RANDOM WALKS COUNT:", RANDOM_WALKS_COUNT)
+# BEAM_SEARCH_WIDTH = 400
+# print("BEAM_SEARCH_WIDTH:", BEAM_SEARCH_WIDTH)
+# DECISION_THRESHOLD = 2
+# print("DECISION THRESHOLD:", DECISION_THRESHOLD)
+RANDOM_WALKS_TIMEOUT = 5
+print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)
 
 
 class Action:
@@ -263,8 +263,7 @@ class Action:
 
                     # At most one variable of the `determinable_vars` can
                     # be determined
-                    return (    determinable_vars
-                            and clueless_vars.issuperset(determinable_vars))
+                    return not clueless_vars.isdisjoint(determinable_vars)
 
                 def determination_dependency(precondition: MicroAction,
                                              transition: MicroAction):
@@ -434,7 +433,7 @@ class Action:
                                  remaining_transitions)
 
         initial = Candidate([MicroAction()], preconditions, transitions)
-        best = random_walk(initial, RANDOM_WALKS_COUNT)
+        best = random_walk(initial, RANDOM_WALKS_TIMEOUT)
         return best.ordered_micro_actions()
 
     def __complete_micro_actions(self,
