@@ -253,13 +253,13 @@ class Action:
                     return []
 
                 last = self.__micro_actions[-1]
-                size_threshold = max(count_estimate(last), size_threshold)
+                max_size = max(count_estimate(last), size_threshold)
                 candidates = []
                 for choice in self.__find_choices():
                     new_micro_action = last.copy()
                     new_micro_action.merge(choice)
                     estimate = count_estimate(new_micro_action)
-                    if last.args and estimate > size_threshold:
+                    if last.args and estimate > max_size:
                         continue
                     candidates.append(self.__get_child(new_micro_action,
                                                        estimate))
@@ -277,6 +277,7 @@ class Action:
                     if not determined.issuperset(needed):
                         return False
                     if (    self.__micro_actions[-1].args
+                        and all
                         and self.__micro_actions[-1].args.isdisjoint(all)):
                         return False
                     if (preconditions_vars.isdisjoint(all)
