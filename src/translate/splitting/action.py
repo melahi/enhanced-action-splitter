@@ -19,7 +19,7 @@ from .random_walk import random_walk
 # print("BEAM_SEARCH_WIDTH:", BEAM_SEARCH_WIDTH)
 # DECISION_THRESHOLD = 2
 # print("DECISION THRESHOLD:", DECISION_THRESHOLD)
-RANDOM_WALKS_TIMEOUT = 5
+RANDOM_WALKS_TIMEOUT = 20
 print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)
 
 
@@ -177,10 +177,46 @@ class Action:
                    for s in p.preconditions
                    if self.__knowledge.is_static(s.condition.predicate)]
 
+        # # Find starting point preconditions
+        # # Staring point preconditions are those preconditions that have at
+        # # least one variable which is not shared among any other precondition
+        # counter = {}
+        # for precondition in preconditions:
+        #     for variable in precondition.args:
+        #         counter[variable] = counter.get(variable, 0) + 1
+        # starting_variables = {v for v, c in counter.items() if c == 1}
+        # TBD...
+
+        # Create dependency graph
+        # dependency graph demonstrates dependencies among variables
+        # and preconditions. We say a variable depends on a preconditions,
+        # if the variable is an omittable argument of the precondition.
+        # We say a precondition depends on a variable if the variable is not
+        # an omittable argument of the precondition.
+        preconditions_vars = set().union(*(p.args for p in preconditions))
+        positive_preconditions = [p.preconditions[0]
+                                  for p in preconditions
+                                  if isinstance(p.preconditions[0].condition,
+                                                Atom)]
+        positive_vars = set().union(*(p.find_args()
+                                      for p in positive_preconditions))
+        dependency_graph = Graph(positive_preconditions + list(positive_vars))
+        for condition in positive_preconditions:
+            omittables = get_omittable_variables(condition)
+            not_omittables = condition.find_args().difference(omittables)
+            for variable in omittables:
+                dependency_graph.add_edge((variable, condition))
+            for variable in not_omittables:
+                dependency_graph.add_edge((condition, variable))
+
+        # The dependency graph might be cyclic, which is not desireable!
+        dependency_graph.make_acyclic()
+
         # keep `distinct_args` for later usage
         distinct_args = self.__distinct_args
 
         print("Action:", self.__name)
+
         class Candidate(AbstractNode):
             def __init__(self,
                          micro_actions: List[MicroAction],
@@ -216,17 +252,12 @@ class Action:
                     # It is a terminal node
                     return []
 
-                candidates = []
-                dependency_graph = self.__construct_dependency_graph()
                 last = self.__micro_actions[-1]
-                for part in dependency_graph.vertices:
-                    if (last.args and last.args.isdisjoint(part.args)):
-                        continue
-                    if dependency_graph.neighbors(part):
-                        # `part` has some dependency which is not satisfied yet!
-                        continue
+                size_threshold = max(count_estimate(last), size_threshold)
+                candidates = []
+                for choice in self.__find_choices():
                     new_micro_action = last.copy()
-                    new_micro_action.merge(part)
+                    new_micro_action.merge(choice)
                     estimate = count_estimate(new_micro_action)
                     if last.args and estimate > size_threshold:
                         continue
@@ -239,75 +270,42 @@ class Action:
                                                 self.__transitions))
                 return candidates
 
-            def __construct_dependency_graph(self):
+            def __find_choices(self) -> List[MicroAction]:
                 determined = set().union(*[m.args for m in self.__micro_actions])
-                def is_helping(subject: MicroAction, object: MicroAction):
-                    assert len(subject.preconditions) == 1,\
-                        "`subject` should be a precondition"
-                    subject: Condition = subject.preconditions[0]
-                    assert len(object.preconditions) == 1,\
-                        "`object` should be a precondition"
-                    object: Condition = object.preconditions[0]
-                    if not isinstance(subject.condition, Atom):
+
+                def are_relevant_vars(needed: set, all: set):
+                    if not determined.issuperset(needed):
                         return False
-                    determinable_vars = get_omittable_variables(subject)
-                    determinable_vars = set(determinable_vars) - determined
-                    clueless_vars = object.find_args() - determined
-                    if isinstance(object.condition, Atom):
-                        clueless_vars -= set(get_omittable_variables(object))
-                    elif not clueless_vars.isdisjoint(subject.find_args()):
-                        # Any positive literal/condition has higher priority
-                        # to determine the value of a variable comparing to
-                        # a negative literal/condition.
-                        return True
+                    if (    self.__micro_actions[-1].args
+                        and self.__micro_actions[-1].args.isdisjoint(all)):
+                        return False
+                    if (preconditions_vars.isdisjoint(all)
+                        and not determined.issuperset(preconditions_vars)):
+                        return False
+                    return True
 
-                    # At most one variable of the `determinable_vars` can
-                    # be determined
-                    return not clueless_vars.isdisjoint(determinable_vars)
+                preconditions = []
+                for precondition in self.__preconditions:
+                    condition = precondition.preconditions[0]
+                    if isinstance(condition.condition, Atom):
+                        needed = [v
+                                  for v in dependency_graph.neighbors(condition)
+                                  if dependency_graph.neighbors(v)]
+                    else:
+                        needed = positive_vars & precondition.args
+                    if are_relevant_vars(needed, precondition.args):
+                        preconditions.append(precondition)
 
-                def determination_dependency(precondition: MicroAction,
-                                             transition: MicroAction):
-                    unknowns = transition.args - determined
-                    return not precondition.args.isdisjoint(unknowns)
+                transitions = [t
+                               for t in self.__transitions
+                               if are_relevant_vars(t.args & preconditions_vars,
+                                                    t.args)]
+                transitions = [t
+                               for t in transitions
+                               for m in self.__transitions + self.__preconditions
+                               if not m.is_threatened_by(t, distinct_args)]
 
-                def threatening_relation(micro_action: MicroAction,
-                                         transition: MicroAction):
-                    return micro_action.is_threatened_by(transition,
-                                                         distinct_args)
-
-                def find_edges(criteria, possible_edges):
-                    return filter(lambda edge: criteria(*edge), possible_edges)
-
-                graph = Graph(self.__preconditions + self.__transitions)
-                
-                # Preconditions that can help to determine a value should
-                # come earlier in our chain than those who are only using it.
-                graph = reduce(Graph.add_edge,
-                               find_edges(is_helping,
-                                          permutations(self.__preconditions,
-                                                       r=2)),
-                               graph)
-                # We might have a cyclic graph until this point
-                graph.make_acyclic()
-
-                # Preconditions that restrict the value of an undetermined
-                # variable should be placed before than transitions who are
-                # using those variables
-                graph = reduce(Graph.add_edge,
-                               find_edges(determination_dependency,
-                                          product(self.__preconditions,
-                                                  self.__transitions)),
-                               graph)
-                
-                # If a transition threats some preconditions and/or transitions
-                # it should be placed after them.
-                graph = reduce(Graph.add_edge,
-                               find_edges(threatening_relation,
-                                          product(  self.__preconditions
-                                                  + self.__transitions,
-                                                  self.__transitions)),
-                               graph)
-                return graph
+                return preconditions + transitions
 
             def __calculate_cost(self):
                 # Cost criteria:
