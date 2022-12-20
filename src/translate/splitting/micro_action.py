@@ -55,7 +55,8 @@ class Condition(AtomicActionPart):
         return hash(self.__condition)
 
     def __eq__(self, other: 'Condition') -> bool:
-        return self.__condition == other.__condition
+        return (    isinstance(other, Condition)
+                and self.__condition == other.__condition)
 
     @property
     def condition(self):
