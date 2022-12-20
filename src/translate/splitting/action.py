@@ -1,5 +1,5 @@
 from typing import Iterable, List, Set
-from itertools import combinations, permutations, product
+from itertools import combinations, permutations
 from functools import reduce
 
 from sccs import get_sccs_adjacency_dict
@@ -19,7 +19,7 @@ from .random_walk import random_walk
 # print("BEAM_SEARCH_WIDTH:", BEAM_SEARCH_WIDTH)
 # DECISION_THRESHOLD = 2
 # print("DECISION THRESHOLD:", DECISION_THRESHOLD)
-RANDOM_WALKS_TIMEOUT = 20
+RANDOM_WALKS_TIMEOUT = 50
 print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)
 
 
@@ -203,6 +203,8 @@ class Action:
         dependency_graph = Graph(positive_preconditions + list(positive_vars))
         for condition in positive_preconditions:
             omittables = get_omittable_variables(condition)
+            # Select only one omittable
+            omittables = [omittables[-1]]  if omittables else []
             not_omittables = condition.find_args().difference(omittables)
             for variable in omittables:
                 dependency_graph.add_edge((variable, condition))
@@ -373,11 +375,17 @@ class Action:
                             new_micro_action: MicroAction,
                             size_threshold: int) -> 'Candidate':
                 # Adding static precondition as much as possible
+                determined = set().union(*[m.args
+                                           for m in (self.__micro_actions[:-1]
+                                                     + [new_micro_action])])
+
                 level_off = False
                 while not level_off:
                     level_off = True
                     for static_condition in statics:
                         if static_condition in new_micro_action.preconditions:
+                            continue
+                        if not static_condition.find_args().issubset(determined):
                             continue
                         temp = new_micro_action.copy()
                         temp.add_precondition(static_condition)
