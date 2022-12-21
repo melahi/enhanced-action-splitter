@@ -19,7 +19,7 @@ from .random_walk import random_walk
 # print("BEAM_SEARCH_WIDTH:", BEAM_SEARCH_WIDTH)
 # DECISION_THRESHOLD = 2
 # print("DECISION THRESHOLD:", DECISION_THRESHOLD)
-RANDOM_WALKS_TIMEOUT = 50
+RANDOM_WALKS_TIMEOUT = 10
 print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)
 
 
@@ -305,8 +305,9 @@ class Action:
                                                     t.args)]
                 transitions = [t
                                for t in transitions
-                               for m in self.__transitions + self.__preconditions
-                               if not m.is_threatened_by(t, distinct_args)]
+                               if not any(m.is_threatened_by(t, distinct_args)
+                                          for m in (  self.__transitions
+                                                    + self.__preconditions))]
 
                 return preconditions + transitions
 
@@ -415,7 +416,7 @@ class Action:
                 def is_it_safe_to_include(transition: MicroAction):
                     if not new_micro_action.args.issuperset(transition.args):
                         return False
-                    if any(part.is_threatened_by(transition,distinct_args)
+                    if any(part.is_threatened_by(transition, distinct_args)
                            for part in (  remaining_preconditions
                                         + remaining_transitions)):
                         return False
