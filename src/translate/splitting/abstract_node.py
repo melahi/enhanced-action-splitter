@@ -18,3 +18,7 @@ class AbstractNode(ABC):
     @abstractmethod
     def neighbors(self) -> List['AbstractNode']:
         raise NotImplementedError
+
+    @abstractmethod
+    def should_be_pruned(self, __o:'AbstractNode') -> bool:
+        return False

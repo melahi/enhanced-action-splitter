@@ -19,7 +19,7 @@ from .random_walk import random_walk
 # print("BEAM_SEARCH_WIDTH:", BEAM_SEARCH_WIDTH)
 # DECISION_THRESHOLD = 2
 # print("DECISION THRESHOLD:", DECISION_THRESHOLD)
-RANDOM_WALKS_TIMEOUT = 10
+RANDOM_WALKS_TIMEOUT = 20
 print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)
 
 
@@ -243,6 +243,10 @@ class Action:
             def __lt__(self, __o: 'Candidate') -> bool:
                 return self.__calculate_cost() < __o.__calculate_cost()
 
+            @property
+            def cost(self):
+                return self.__calculate_cost()
+
             def ordered_micro_actions(self):
                 assert not self.__preconditions and not self.__transitions,\
                        "Expected not having remaining precondition or "\
@@ -272,6 +276,15 @@ class Action:
                                                 self.__transitions))
                 return candidates
 
+            def should_be_pruned(self, other: 'Candidate') -> bool:
+                other_cost = other.cost
+                if other_cost[0] != 0:
+                    # we assumed `other` candidate is completed. This
+                    # condition is not complete, because we cannot check
+                    # the remaining number of `other`s transitions.
+                    return False
+                return other_cost[1:] <= self.cost[1:]
+
             def __find_choices(self) -> List[MicroAction]:
                 determined = set().union(*[m.args for m in self.__micro_actions])
 
@@ -287,7 +300,7 @@ class Action:
                         return False
                     return True
 
-                preconditions = []
+                preconditions: List[MicroAction] = []
                 for precondition in self.__preconditions:
                     condition = precondition.preconditions[0]
                     if isinstance(condition.condition, Atom):
@@ -329,45 +342,37 @@ class Action:
                 if self.__cost is not None:
                     return self.__cost
 
-                assert not self.__preconditions and not self.__transitions,\
-                       "cost is not defined for uncompleted candidates"
-
-                # Finding components
-                components = []
-                for micro_action in self.__micro_actions:
-                    if not micro_action.has_precondition:
-                        continue
-                    old_components = []
-                    new_component = micro_action.args
-                    for component in components:
-                        if new_component.isdisjoint(component):
-                            old_components.append(component)
-                        else:
-                            new_component.update(component)
-                    components = old_components + [new_component]
-
-                spans = []
-                for component in components:
-                    first = len(self.__micro_actions)
-                    last = 0
-                    for i, micro_action in enumerate(self.__micro_actions):
-                        if (   not micro_action.has_precondition
-                            or micro_action.args.isdisjoint(component)):
+                # Finding spans of variables
+                first_visit = {}
+                last_visit = {}
+                preconditions = set()
+                for i, micro_action in enumerate(self.__micro_actions):
+                    for precondition in micro_action.preconditions:
+                        if precondition in preconditions:
                             continue
-                        first = min(first, i)
-                        last = max(last, i)
-                    spans.append(last - first + 1)
-                spans.sort(reverse=True)
+                        preconditions.add(precondition)
+                        for arg in precondition.find_args():
+                            if not is_variable(arg):
+                                continue
+                            if arg not in first_visit:
+                                first_visit[arg] = i
+                            last_visit[arg] = i
 
-                preconditions_count = 0
+                variables_spans = [last_visit[v] - first_visit[v]
+                                   for v in first_visit.keys()
+                                   if last_visit[v] - first_visit[v] > 0]
+                variables_spans.sort(reverse=True)
+
+                preconditional_micro_actions_count = 0
                 ground_estimate = 0
                 for micro_action in self.__micro_actions:
                     ground_estimate += count_estimate(micro_action)
                     if micro_action.has_precondition:
-                        preconditions_count += 1
+                        preconditional_micro_actions_count += 1
 
-                self.__cost = (spans,
-                               preconditions_count,
+                self.__cost = (len(self.__preconditions),
+                               variables_spans,
+                               preconditional_micro_actions_count,
                                len(self.__micro_actions),
                                ground_estimate)
                 return self.__cost
@@ -442,6 +447,7 @@ class Action:
 
         initial = Candidate([MicroAction()], preconditions, transitions)
         best = random_walk(initial, RANDOM_WALKS_TIMEOUT)
+        print(self.__name, "best candidate cost:", best.cost)
         return best.ordered_micro_actions()
 
     def __complete_micro_actions(self,
