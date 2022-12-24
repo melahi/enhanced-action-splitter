@@ -200,19 +200,6 @@ class Action:
                                                 Atom)]
         positive_vars = set().union(*(p.find_args()
                                       for p in positive_preconditions))
-        dependency_graph = Graph(positive_preconditions + list(positive_vars))
-        for condition in positive_preconditions:
-            omittables = get_omittable_variables(condition)
-            # Select only one omittable
-            omittables = [omittables[-1]]  if omittables else []
-            not_omittables = condition.find_args().difference(omittables)
-            for variable in omittables:
-                dependency_graph.add_edge((variable, condition))
-            for variable in not_omittables:
-                dependency_graph.add_edge((condition, variable))
-
-        # The dependency graph might be cyclic, which is not desireable!
-        dependency_graph.make_acyclic()
 
         # keep `distinct_args` for later usage
         distinct_args = self.__distinct_args
@@ -304,9 +291,7 @@ class Action:
                 for precondition in self.__preconditions:
                     condition = precondition.preconditions[0]
                     if isinstance(condition.condition, Atom):
-                        needed = [v
-                                  for v in dependency_graph.neighbors(condition)
-                                  if dependency_graph.neighbors(v)]
+                        needed = {}
                     else:
                         needed = positive_vars & precondition.args
                     if are_relevant_vars(needed, precondition.args):
@@ -346,7 +331,11 @@ class Action:
                 first_visit = {}
                 last_visit = {}
                 preconditions = set()
+                decisions = 0
                 for i, micro_action in enumerate(self.__micro_actions):
+                    new_variables = {v
+                                     for v in micro_action.args
+                                     if v not in first_visit}
                     for precondition in micro_action.preconditions:
                         if precondition in preconditions:
                             continue
@@ -357,6 +346,9 @@ class Action:
                             if arg not in first_visit:
                                 first_visit[arg] = i
                             last_visit[arg] = i
+                        omittables = get_omittable_variables(precondition)
+                        new_variables = new_variables.difference(omittables)
+                    decisions += len(new_variables)
 
                 variables_spans = [last_visit[v] - first_visit[v]
                                    for v in first_visit.keys()
@@ -373,6 +365,7 @@ class Action:
                 self.__cost = (len(self.__preconditions),
                                variables_spans,
                                preconditional_micro_actions_count,
+                               decisions,
                                len(self.__micro_actions),
                                ground_estimate)
                 return self.__cost
