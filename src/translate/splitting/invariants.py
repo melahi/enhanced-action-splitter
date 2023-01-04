@@ -1,7 +1,7 @@
 # Finding invariants based on Rintanen's  paper:
 # 'Schematic Invariants by Reduction to Ground Invariants'
 
-from typing import Dict, List, Tuple, Iterable, Optional
+from typing import Dict, List, Iterable, Optional
 from abc import ABC, abstractmethod
 from itertools import chain
 
@@ -87,7 +87,7 @@ class __Type(__AbstractType):
 
 class __LimitedType(__AbstractType):
     def __init__(self,
-                 original_type: __Type,
+                 original_type: '__Type',
                  parent: Optional['__LimitedType'],
                  objects_needed: Dict[str, int]):
         self.__type = original_type
@@ -110,20 +110,20 @@ def __get_max_objects_needed_for_actions(actions: Iterable[Action]):
         if isinstance(formula, Literal):
             return {a for a in formula.args if not is_variable(a)}
         if isinstance(formula, (JunctorCondition, QuantifiedCondition)):
-            return set().union(get_constants_in_formula(p)
-                               for p in formula.parts)
+            return set().union(*(get_constants_in_formula(p)
+                                 for p in formula.parts))
         if isinstance(formula, ConstantCondition):
             return set()
         raise NotImplementedError(f"Unknown condition type: {type(formula)}")
     def get_constants_in_effect(effect):
         if isinstance(effect, Effect):
             return (  get_constants_in_formula(effect.condition)
-                    + get_constants_in_formula(effect.literal))
+                    | get_constants_in_formula(effect.literal))
         raise NotImplementedError(f"Unknown effect type: {type(effect)}")
     def get_constants(action: Action):
         return (  get_constants_in_formula(action.precondition)
-                + set().union(get_constants_in_effect(e)
-                              for e in action.effects))
+                | set().union(*(get_constants_in_effect(e)
+                                for e in action.effects)))
 
     max_objects_for_actions = dict()
     constants = set()
@@ -131,7 +131,7 @@ def __get_max_objects_needed_for_actions(actions: Iterable[Action]):
         counter = dict()
         constants_in_action = get_constants(action)
         for symbol in constants_in_action.union(action.parameters):
-            counter[symbol.type_name] = counter(symbol.type_name, 0) + 1
+            counter[symbol.type_name] = counter.get(symbol.type_name, 0) + 1
         for type_name, count in counter.items():
             max_objects_for_actions[type_name] =\
                 max(max_objects_for_actions.get(type_name, 0), count)
@@ -141,6 +141,8 @@ def __get_max_objects_needed_for_actions(actions: Iterable[Action]):
 def __get_max_objects_needed_for_predicates(predicates: Iterable[Predicate]):
     max_objects_for_predicates = dict()
     for predicate in predicates:
+        if predicate.name == "=":
+            continue
         counter = dict()
         for arg in predicate.arguments:
             counter[arg.type_name] = counter.get(arg.type_name, 0) + 1
@@ -148,3 +150,14 @@ def __get_max_objects_needed_for_predicates(predicates: Iterable[Predicate]):
             max_objects_for_predicates[type_name] =\
                 max(max_objects_for_predicates.get(type_name, 0), count)
     return max_objects_for_predicates
+
+def __get_max_objects_needed(task: Task) -> Dict[str, int]:
+    for_predicates = __get_max_objects_needed_for_predicates(task.predicates)
+    for_actions, constants = __get_max_objects_needed_for_actions(task.actions)
+    for t in task.types:
+        for_predicates.setdefault(t.name, 0)
+        for_actions.setdefault(t.name, 0)
+    # Calculating the formula $L_t^N(A, P)$
+    return {t.name: (  max(for_actions[t.name], for_predicates[t.name])
+                     + (N - 1) * for_predicates[t.name])
+            for t in task.types}
