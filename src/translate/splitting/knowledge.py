@@ -4,8 +4,9 @@ from itertools import product, chain
 import pandas as pd
 
 import normalize
-from invariant_finder import find_invariants
+# from invariant_finder import find_invariants
 from invariants import Invariant
+from .invariants import find_invariants
 from pddl import Task, Literal, Atom, Assign, Effect
 from pddl.conditions import Conjunction, ConstantCondition
 from pddl.conditions import JunctorCondition, Truth
@@ -128,7 +129,7 @@ class Knowledge:
         normalize.normalize(task)
         self.__extract_domains(task)
         task = self.__filter_not_instantiable_actions(task)
-        invariants = find_invariants(task, None)
+        invariants = find_invariants(task)
         invariant_size = self.__exactly_one_invariants(invariants, task.init)
         for invariant in invariant_size:
             for part in invariant.parts:

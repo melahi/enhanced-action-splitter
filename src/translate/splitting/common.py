@@ -1,10 +1,15 @@
-from typing import Tuple, List
+from typing import Tuple, List, Union
 from itertools import chain
 
 from pddl import Literal, Conjunction, Truth, TypedObject
 
 
 Predicate = Tuple[str, List[str]]  # predicate type
+
+
+def is_variable(argument: Union[str, TypedObject]):
+    return ((argument.name if isinstance(argument, TypedObject) else argument)
+            .startswith("?"))
 
 
 def literal_to_string(literal: Literal) -> str:

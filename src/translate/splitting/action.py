@@ -10,7 +10,6 @@ from pddl import Literal, TypedObject
 from .common import get_conditions
 from .knowledge import Knowledge
 from .micro_action import Condition, Transition, MicroAction
-from .graph import Graph
 from .abstract_node import AbstractNode
 from .random_walk import random_walk
 
@@ -151,7 +150,6 @@ class Action:
                               preconditions: List[MicroAction],
                               transitions: List[MicroAction],
                               size_threshold: int):
-
         def get_args(literal: Literal):
             return [a.name if isinstance(a, TypedObject) else a
                     for a in literal.args]
