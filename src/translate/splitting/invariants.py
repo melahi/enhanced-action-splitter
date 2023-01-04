@@ -25,6 +25,11 @@ class __AbstractType(ABC):
         self.__children: List['__AbstractType'] = list()
         self.__domain: List[TypedObject]= list()
 
+    def __str__(self):
+        elements = ", ".join(e.name for e in self.__domain)
+        parent_name = "" if self.__parent is None else f"({self.__parent.name})"
+        return f"{self.name}{parent_name}: {elements}"
+
     @property
     @abstractmethod
     def name(self):
