@@ -33,6 +33,9 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, List[str]]]:
     "?x" is distinct with the arguments "?y" and "?z", then we'll have:
     `find_distinct_args(task)['a']['?x'] == ['?y', '?z']`
     """
+    if not __is_domain_supported(task):
+        # Return a non-restricting output
+        return {a: {p.name: [] for p in a.parameters} for a in task.actions}
     print(__get_max_objects_needed(task))
     types = __construct_types(task.types, task.objects)
     init = {l for l in task.init if isinstance(l, Atom)}
@@ -42,6 +45,15 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, List[str]]]:
                                                                   types):
         print(invariant)
     exit(-1)
+
+
+def __is_domain_supported(task: Task):
+    for requirement in task.requirements.requirements:
+        if requirement == ":adl":
+            return False
+        if requirement == ":conditional-effects":
+            return False
+    return True
 
 
 class __AbstractType(ABC):
