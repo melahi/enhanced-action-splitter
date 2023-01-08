@@ -12,6 +12,7 @@ from pddl.conditions import JunctorCondition, QuantifiedCondition
 from pddl.conditions import ConstantCondition
 
 from .common import is_variable, get_conditions
+from .sat_solver import Context
 
 
 N = 2  # Maximum size of disjunctive invariants; the name is got from the paper
@@ -36,15 +37,13 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, List[str]]]:
     if not __is_domain_supported(task):
         # Return a non-restricting output
         return {a: {p.name: [] for p in a.parameters} for a in task.actions}
-    __create_limited_instance(task)
-    exit(-1)
     types = __construct_types(task.types, task.objects)
     init = {l for l in task.init if isinstance(l, Atom)}
     predicates = [p for p in task.predicates if p.name != "="]
-    for invariant in __find_schematic_invariants_in_initial_state(init,
-                                                                  predicates,
-                                                                  types):
-        print(invariant)
+    invariants = __find_schematic_invariants_in_initial_state(init,
+                                                              predicates,
+                                                              types)
+    __create_limited_instance(task, invariants)
     exit(-1)
 
 
@@ -415,7 +414,54 @@ def __get_all_limited_types(root: __LimitedType):
         return all_types
     return get_types(root, dict())
 
-def __create_limited_instance(task: Task):
+def __create_limited_initial_state(predicates: List[Predicate],
+                                   types: Dict[str,  __AbstractType],
+                                   invariants: List[List[Literal]]):
+    context = Context()
+    for invariant in invariants:
+        context.add_clause(invariant)
+    initial_state = []
+    for predicate in predicates:
+        if predicate.name == "=":
+            for element in __find_root(types).domain:
+                initial_state.append(Atom("=", (element, element)))
+            continue
+        for new_args in product(*(types[a.type_name].domain
+                                  for a in predicate.arguments)):
+            atom = Atom(predicate.name, new_args)
+            context.add_scope()
+            context.add_clause([atom])
+            is_consistent = context.is_satisfiable()
+            context.drop_scope()
+            if is_consistent:
+                initial_state.append(atom)
+                context.add_clause([atom])
+    print("\n".join(str(l) for l in initial_state))
+
+def __construct_limited_types(task: Task):
+    constants, objects_needed = __get_max_objects_needed(task)
+    types = __construct_types(task.types, task.objects)
+    root_type = __find_root(types)
+    root_limited_type = __LimitedType(root_type,
+                                      None,
+                                      constants,
+                                      objects_needed)
+    return __get_all_limited_types(root_limited_type)
+
+def __create_limited_instance(task: Task,
+                              schematic_invariants: List[__SchematicInvariant]):
+    if ":negative-preconditions" in task.requirements.requirements:
+        print("WARNING: In constructing the limited initial state we assumed")
+        print("         adding more positive literals is kind of relaxing the")
+        print("         problem. However, in the case of having negative")
+        print("         precondition, this assumption might not be correct!")
+
+    types = __construct_limited_types(task)
+    invariants = list(chain(*(i.instantiate(types)
+                              for i in schematic_invariants)))
+    init = __create_limited_initial_state(task.predicates, types, invariants)
+
+def __create_limited_instance_old(task: Task):
     constants, objects_needed = __get_max_objects_needed(task)
     types = __construct_types(task.types, task.objects)
     root_type = __find_root(types)
