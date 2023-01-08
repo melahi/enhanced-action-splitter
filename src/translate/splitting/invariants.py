@@ -7,11 +7,11 @@ from itertools import chain, count, combinations, product
 from copy import deepcopy
 
 from pddl import Task, Action, Effect, Predicate, Literal, Atom, TypedObject
-from pddl import Type
+from pddl import Type, Conjunction, Truth
 from pddl.conditions import JunctorCondition, QuantifiedCondition
 from pddl.conditions import ConstantCondition
 
-from .common import is_variable
+from .common import is_variable, get_conditions
 
 
 N = 2  # Maximum size of disjunctive invariants; the name is got from the paper
@@ -36,7 +36,8 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, List[str]]]:
     if not __is_domain_supported(task):
         # Return a non-restricting output
         return {a: {p.name: [] for p in a.parameters} for a in task.actions}
-    print(__get_max_objects_needed(task))
+    __create_limited_instance(task)
+    exit(-1)
     types = __construct_types(task.types, task.objects)
     init = {l for l in task.init if isinstance(l, Atom)}
     predicates = [p for p in task.predicates if p.name != "="]
@@ -60,7 +61,7 @@ class __AbstractType(ABC):
     def __init__(self):
         self.__parent: Optional['__AbstractType'] = None
         self.__children: List['__AbstractType'] = list()
-        self.__domain: List[TypedObject]= list()
+        self.__domain: List[str]= list()
 
     def __str__(self):
         elements = ", ".join(e.name for e in self.__domain)
@@ -89,6 +90,8 @@ class __AbstractType(ABC):
                 + list(chain.from_iterable(c.domain for c in self.__children)))
 
     def add_parent(self, parent: '__AbstractType'):
+        if parent is None:
+            return self
         if self.__parent is None:
             self.__parent = parent
             parent.__children.append(self)
@@ -134,18 +137,23 @@ class __LimitedType(__AbstractType):
     def __init__(self,
                  original_type: '__Type',
                  parent: Optional['__LimitedType'],
+                 needed_constants: List[TypedObject],
                  objects_needed: Dict[str, int]):
         super().__init__()
         self.__type = original_type
         self.add_parent(parent)
-        children = [__LimitedType(child,
-                                  self,
-                                  objects_needed)
-                    for child in original_type.children]
-        new_objects_needed = self._domain_size() - objects_needed[self.name]
+        for child in original_type.children:
+            self.__class__(child, self, needed_constants, objects_needed)
+        self.add_to_domain([c
+                            for c in needed_constants
+                            if c.name == self.name])
+        new_objects_needed = objects_needed[self.name] - self._domain_size()
         if new_objects_needed > 0:
-            self.add_to_domain(original_type.domain[:new_objects_needed])
-        raise NotImplementedError("PLEASE CHECK THIS CHUNK OF CODE ^^^")
+            domain = self.domain
+            new_elements = [TypedObject(e, self.__type.name)
+                            for e in original_type.domain
+                            if e not in domain]
+            self.add_to_domain(new_elements[:new_objects_needed])
 
     @property
     def name(self):
@@ -190,6 +198,8 @@ def __get_max_objects_needed_for_actions(actions: Iterable[Action]):
     for action in actions:
         counter = dict()
         constants_in_action = get_constants(action)
+        constants_in_action = {c.name if isinstance(c, TypedObject) else c
+                               for c in constants_in_action}
         for symbol in constants_in_action.union(action.parameters):
             counter[symbol.type_name] = counter.get(symbol.type_name, 0) + 1
         for type_name, count in counter.items():
@@ -211,16 +221,18 @@ def __get_max_objects_needed_for_predicates(predicates: Iterable[Predicate]):
                 max(max_objects_for_predicates.get(type_name, 0), count)
     return max_objects_for_predicates
 
-def __get_max_objects_needed(task: Task) -> Dict[str, int]:
+def __get_max_objects_needed(task: Task):
     for_predicates = __get_max_objects_needed_for_predicates(task.predicates)
     for_actions, constants = __get_max_objects_needed_for_actions(task.actions)
+    constants = [obj for obj in task.objects if obj.name in constants]
     for t in task.types:
         for_predicates.setdefault(t.name, 0)
         for_actions.setdefault(t.name, 0)
     # Calculating the formula $L_t^N(A, P)$
-    return {t.name: (  max(for_actions[t.name], for_predicates[t.name])
-                     + (N - 1) * for_predicates[t.name])
-            for t in task.types}
+    L = {t.name: (  max(for_actions[t.name], for_predicates[t.name])
+                  + (N - 1) * for_predicates[t.name])
+         for t in task.types}
+    return constants, L
 
 
 __global_variable_counter = count()
@@ -364,3 +376,57 @@ def __find_schematic_invariants_in_initial_state(initial_state: Set[Atom],
         else:
             candidates.extend(candidate_invariant.weaken(predicates, types))
     return invariants
+
+def __ground_action(action: Action, types: Dict[str, '__AbstractType']):
+    grounded_actions: List[Action] = list()
+    for values in product(*(types[p.type_name].domain
+                            for p in action.parameters)):
+        mappings = {p.name: v for p, v in zip(action.parameters, values)}
+        preconditions = [c.rename_variables(mappings)
+                         for c in get_conditions(action.precondition)]
+        effects = [Effect(e.parameters,
+                          Conjunction([c.rename_variables(mappings)
+                                       for c in get_conditions(e.condition)]),
+                          e.literal.rename_variables(mappings))
+                   for e in action.effects]
+        parameters = [TypedObject(mappings[p.name], p.type_name)
+                      for p in action.parameters]
+        grounded_actions.append(Action(action.name,
+                                       parameters, 
+                                       action.num_external_parameters,
+                                       Conjunction(preconditions),
+                                       effects,
+                                       action.cost))
+    return grounded_actions
+
+def __find_root(types: Dict[str, __AbstractType]):
+    root = None
+    for _type in types.values():
+        if _type.parent is None:
+            assert root is None,  "Multi Root type!"
+            root = _type
+    return root
+
+def __get_all_limited_types(root: __LimitedType):
+    def get_types(_type:__LimitedType, all_types: Dict[str, __LimitedType]):
+        for child in _type.children:
+            all_types = get_types(child, all_types)
+        all_types[_type.name] = _type
+        return all_types
+    return get_types(root, dict())
+
+def __create_limited_instance(task: Task):
+    constants, objects_needed = __get_max_objects_needed(task)
+    types = __construct_types(task.types, task.objects)
+    root_type = __find_root(types)
+    root_limited_type = __LimitedType(root_type,
+                                      None,
+                                      constants,
+                                      objects_needed)
+    limited_types = __get_all_limited_types(root_limited_type)
+    ground_actions = []
+    for action in task.actions:
+        ground_actions.extend(__ground_action(action, limited_types))
+    for action in ground_actions:
+        print("=========================")
+        print(action)
