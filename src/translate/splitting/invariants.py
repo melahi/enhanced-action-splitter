@@ -60,7 +60,7 @@ class __AbstractType(ABC):
     def __init__(self):
         self.__parent: Optional['__AbstractType'] = None
         self.__children: List['__AbstractType'] = list()
-        self.__domain: List[str]= list()
+        self.__domain: List[TypedObject]= list()
 
     def __str__(self):
         elements = ", ".join(e.name for e in self.__domain)
@@ -110,7 +110,7 @@ class __AbstractType(ABC):
         unused_objects = []
         for object in objects:
             if object.type_name == self.name:
-                self.__domain.append(object.name)
+                self.__domain.append(deepcopy(object))
             else:
                 unused_objects.append(object)
         for child in self.__children:
@@ -148,10 +148,10 @@ class __LimitedType(__AbstractType):
                             if c.name == self.name])
         new_objects_needed = objects_needed[self.name] - self._domain_size()
         if new_objects_needed > 0:
-            domain = self.domain
-            new_elements = [TypedObject(e, self.__type.name)
+            domain = [e.name for e in self.domain]
+            new_elements = [TypedObject(e.name, self.__type.name)
                             for e in original_type.domain
-                            if e not in domain]
+                            if e.name not in domain]
             self.add_to_domain(new_elements[:new_objects_needed])
 
     @property
@@ -335,7 +335,7 @@ class __SchematicInvariant:
                 for l in self.__disjunction
                 for a in l.args}
         for instance in product(*(t.domain for _, t in args.items())):
-            values = {n: v for n, v in zip(args.keys(), instance)}
+            values = {n: v.name for n, v in zip(args.keys(), instance)}
             for v1, v2 in self.__inequalities:
                 if values[v1] == values[v2]:
                     break
@@ -424,11 +424,11 @@ def __create_limited_initial_state(predicates: List[Predicate],
     for predicate in predicates:
         if predicate.name == "=":
             for element in __find_root(types).domain:
-                initial_state.append(Atom("=", (element, element)))
+                initial_state.append(Atom("=", (element.name, element.name)))
             continue
         for new_args in product(*(types[a.type_name].domain
                                   for a in predicate.arguments)):
-            atom = Atom(predicate.name, new_args)
+            atom = Atom(predicate.name, tuple(a.name for a in new_args))
             context.add_scope()
             context.add_clause([atom])
             is_consistent = context.is_satisfiable()
@@ -436,7 +436,7 @@ def __create_limited_initial_state(predicates: List[Predicate],
             if is_consistent:
                 initial_state.append(atom)
                 context.add_clause([atom])
-    print("\n".join(str(l) for l in initial_state))
+    return initial_state
 
 def __construct_limited_types(task: Task):
     constants, objects_needed = __get_max_objects_needed(task)
@@ -460,6 +460,21 @@ def __create_limited_instance(task: Task,
     invariants = list(chain(*(i.instantiate(types)
                               for i in schematic_invariants)))
     init = __create_limited_initial_state(task.predicates, types, invariants)
+    return Task(task.domain_name,
+                task.task_name,
+                task.requirements,
+                [Type(t.name,
+                      None if t.parent is None else t.parent.name)
+                 for t in types.values()],
+                __find_root(types).domain,
+                task.predicates,
+                task.functions,
+                init,
+                task.goal,
+                task.actions,
+                task.axioms,
+                task.use_min_cost_metric)
+
 
 def __create_limited_instance_old(task: Task):
     constants, objects_needed = __get_max_objects_needed(task)
