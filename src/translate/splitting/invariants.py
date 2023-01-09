@@ -3,8 +3,9 @@
 
 from typing import Dict, List, Set, Tuple, Iterable, Optional
 from abc import ABC, abstractmethod
-from itertools import chain, count, combinations, product
 from copy import deepcopy
+from itertools import chain, count, combinations, product
+from functools import cmp_to_key
 
 from pddl import Task, Action, Effect, Predicate, Literal, Atom, TypedObject
 from pddl import Type, Conjunction, Truth
@@ -43,9 +44,7 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, List[str]]]:
     invariants = __find_schematic_invariants_in_initial_state(init,
                                                               predicates,
                                                               types)
-    __create_limited_instance(task, invariants)
-    exit(-1)
-
+    limited_task = __create_limited_instance(task, invariants)
 
 def __is_domain_supported(task: Task):
     for requirement in task.requirements.requirements:
@@ -414,30 +413,6 @@ def __get_all_limited_types(root: __LimitedType):
         return all_types
     return get_types(root, dict())
 
-def __create_limited_initial_state(predicates: List[Predicate],
-                                   types: Dict[str,  __AbstractType],
-                                   invariants: List[List[Literal]]):
-    context = Context()
-    for invariant in invariants:
-        context.add_clause(invariant)
-    initial_state = []
-    for predicate in predicates:
-        if predicate.name == "=":
-            for element in __find_root(types).domain:
-                initial_state.append(Atom("=", (element.name, element.name)))
-            continue
-        for new_args in product(*(types[a.type_name].domain
-                                  for a in predicate.arguments)):
-            atom = Atom(predicate.name, tuple(a.name for a in new_args))
-            context.add_scope()
-            context.add_clause([atom])
-            is_consistent = context.is_satisfiable()
-            context.drop_scope()
-            if is_consistent:
-                initial_state.append(atom)
-                context.add_clause([atom])
-    return initial_state
-
 def __construct_limited_types(task: Task):
     constants, objects_needed = __get_max_objects_needed(task)
     types = __construct_types(task.types, task.objects)
@@ -448,46 +423,53 @@ def __construct_limited_types(task: Task):
                                       objects_needed)
     return __get_all_limited_types(root_limited_type)
 
+def __ground_action(action: Action, types: List[__LimitedType]):
+    def types_comparison(obj1: TypedObject, obj2: TypedObject):
+        if types[obj1.type_name].is_subtype(obj2.type_name):
+            return -1
+        return int(types[obj2.type_name].is_subtype(obj1.type_name))
+
+    # Order the parameters so that more general types placed later
+    parameters = sorted(action.parameters, key=cmp_to_key(types_comparison))
+    domains: List[List[str]] = []
+    for i in range(len(parameters)):
+        domains.append([])
+        for j in range(i):
+            if types[parameters[j].type_name].is_subtype(parameters[i]
+                                                         .type_name):
+                for value in domains[j]:
+                    if value not in domains[i]:
+                        domains[i].append(value)
+                        break
+        for _object in types[parameters[i].type_name].domain:
+            if _object.name not in domains[i]:
+                domains[i].append(_object.name)
+                break
+    grounded_actions: List[Action] = []
+    for values in product(*domains):
+        mappings = {p.name: v for p, v in zip(parameters, values)}
+        preconditions = [c.rename_variables(mappings)
+                         for c in get_conditions(action.precondition)]
+        effects = [Effect(e.parameters,
+                          Conjunction([c.rename_variables(mappings)
+                                       for c in get_conditions(e.condition)]),
+                          e.literal.rename_variables(mappings))
+                   for e in action.effects]
+        grounded_parameters = [TypedObject(mappings[p.name], p.type_name)
+                               for p in action.parameters]
+        grounded_actions.append(Action(action.name,
+                                       grounded_parameters, 
+                                       action.num_external_parameters,
+                                       Conjunction(preconditions),
+                                       effects,
+                                       action.cost))
+    return grounded_actions
+
 def __create_limited_instance(task: Task,
                               schematic_invariants: List[__SchematicInvariant]):
-    if ":negative-preconditions" in task.requirements.requirements:
-        print("WARNING: In constructing the limited initial state we assumed")
-        print("         adding more positive literals is kind of relaxing the")
-        print("         problem. However, in the case of having negative")
-        print("         precondition, this assumption might not be correct!")
-
     types = __construct_limited_types(task)
     invariants = list(chain(*(i.instantiate(types)
                               for i in schematic_invariants)))
-    init = __create_limited_initial_state(task.predicates, types, invariants)
-    return Task(task.domain_name,
-                task.task_name,
-                task.requirements,
-                [Type(t.name,
-                      None if t.parent is None else t.parent.name)
-                 for t in types.values()],
-                __find_root(types).domain,
-                task.predicates,
-                task.functions,
-                init,
-                task.goal,
-                task.actions,
-                task.axioms,
-                task.use_min_cost_metric)
-
-
-def __create_limited_instance_old(task: Task):
-    constants, objects_needed = __get_max_objects_needed(task)
-    types = __construct_types(task.types, task.objects)
-    root_type = __find_root(types)
-    root_limited_type = __LimitedType(root_type,
-                                      None,
-                                      constants,
-                                      objects_needed)
-    limited_types = __get_all_limited_types(root_limited_type)
-    ground_actions = []
+    grounded_actions = []
     for action in task.actions:
-        ground_actions.extend(__ground_action(action, limited_types))
-    for action in ground_actions:
-        print("=========================")
-        print(action)
+        grounded_actions.extend(__ground_action(action, types))
