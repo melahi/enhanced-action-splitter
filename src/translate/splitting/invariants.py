@@ -3,7 +3,6 @@
 
 from typing import Dict, List, Set, Tuple, Iterable, Optional
 from abc import ABC, abstractmethod
-from copy import deepcopy
 from itertools import chain, count, combinations, product
 from functools import cmp_to_key
 
@@ -109,11 +108,11 @@ class __AbstractType(ABC):
 
     def add_to_domain(self, objects: List[TypedObject]):
         unused_objects = []
-        for object in objects:
-            if object.type_name == self.name:
-                self.__domain.append(deepcopy(object))
+        for obj in objects:
+            if obj.type_name == self.name:
+                self.__domain.append(TypedObject(obj.name, obj.type_name))
             else:
-                unused_objects.append(object)
+                unused_objects.append(obj)
         for child in self.__children:
             unused_objects = child.add_to_domain(unused_objects)
         return unused_objects
@@ -253,13 +252,15 @@ class __SchematicInvariant:
                  disjunction: List[Literal]):
         # normalizing names to our local namespace
         local_ids = dict()
-        disjunction = deepcopy(disjunction)
-        disjunction.sort(key=str)
-        for literal in disjunction:
+        normalized_disjunction: List[Literal] = []
+        for literal in sorted(disjunction, key=str):
+            new_args = []
             for arg in literal.args:
                 id = local_ids.setdefault(arg.name, len(local_ids))
-                arg.name = get_variable(id)
-        self.__disjunction = tuple(disjunction)
+                new_args.append(TypedObject(get_variable(id), arg.type_name))
+            new_literal = literal.__class__(literal.predicate, new_args)
+            normalized_disjunction.append(new_literal)
+        self.__disjunction = tuple(normalized_disjunction)
         inequalities = [(get_variable(local_ids[v1]),
                          get_variable(local_ids[v2]))
                         for v1, v2 in inequalities]
@@ -267,12 +268,14 @@ class __SchematicInvariant:
                         for v1, v2 in inequalities}
         inequalities = sorted(inequalities)
         self.__inequalities = tuple(inequalities)
+        self.__hash = hash((self.__disjunction, self.__inequalities))
 
     def __hash__(self):
-        return hash(tuple((self.__disjunction, self.__inequalities)))
+        return self.__hash
 
     def __eq__(self, __o: '__SchematicInvariant') -> bool:
-        return (    self.__disjunction == __o.__disjunction
+        return (    self.__hash == __o.__hash
+                and self.__disjunction == __o.__disjunction
                 and self.__inequalities == __o.__inequalities)
 
     def __str__(self):
@@ -294,30 +297,24 @@ class __SchematicInvariant:
         for i, j in combinations(range(len(self.__disjunction)), r=2):
             for k, l in product(range(len(self.__disjunction[i].args)),
                                 range(len(self.__disjunction[j].args))):
-                disjunction = list(deepcopy(m) for m in self.__disjunction)
-                arg1: TypedObject = disjunction[i].args[k]
-                arg2: TypedObject = disjunction[j].args[l]
+                p, q = i, j
+                arg1: TypedObject = self.__disjunction[p].args[k]
+                arg2: TypedObject = self.__disjunction[q].args[l]
                 if arg1.name == arg2.name:
                     continue
                 if (   (arg1.name, arg2.name) in self.__inequalities
                     or (arg2.name, arg1.name) in self.__inequalities):
                     continue
                 if types[arg1.type_name].is_subtype(arg2.type_name):
-                    new_args = tuple(a if m != k else deepcopy(arg2)
-                                     for m,a in enumerate(disjunction[i].args))
-                    disjunction[i].args = new_args
-                    inequalities = [(v1 if v1 != arg1.name else arg2.name,
-                                     v2 if v2 != arg1.name else arg2.name)
-                                    for v1, v2 in self.__inequalities]
-                elif types[arg2.type_name].is_subtype(arg1.type_name):
-                    new_args = tuple(a if m != l else deepcopy(arg1)
-                                     for m,a in enumerate(disjunction[j].args))
-                    disjunction[j].args = new_args
-                    inequalities = [(v1 if v1 != arg2.name else arg1.name,
-                                     v2 if v2 != arg2.name else arg1.name)
-                                    for v1, v2 in self.__inequalities]
-                else:
+                    arg1, arg2, p, q, k, l = arg2, arg1, q, p, l, k
+                elif not types[arg2.type_name].is_subtype(arg1.type_name):
                     continue
+                new_arg = TypedObject(arg1.name, arg1.type_name)
+                disjunction = [n if m != q else n.replace_argument(l, new_arg)
+                               for m, n in enumerate(self.__disjunction)]
+                inequalities = [(v1 if v1 != arg2.name else arg1.name,
+                                 v2 if v2 != arg2.name else arg1.name)
+                                for v1, v2 in self.__inequalities]
                 # Creating a new weakened invariant by adding an equality
                 # constraint for two variables
                 invariant = self.__class__(inequalities, disjunction)
@@ -340,10 +337,9 @@ class __SchematicInvariant:
                 if values[v1] == values[v2]:
                     break
             else:
-                disjunction = deepcopy(self.__disjunction)
-                for literal in disjunction:
-                    literal.args = tuple(values[a.name] for a in literal.args)
-                yield set(disjunction)
+                yield {l.__class__(l.predicate,
+                                   [values[a.name] for a in l.args])
+                       for l in self.__disjunction}
 
 
 def __find_schematic_invariants_in_initial_state(initial_state: Set[Atom],
