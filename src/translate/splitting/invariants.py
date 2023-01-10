@@ -312,6 +312,9 @@ class __SchematicInvariant:
                 new_arg = TypedObject(arg1.name, arg1.type_name)
                 disjunction = [n if m != q else n.replace_argument(l, new_arg)
                                for m, n in enumerate(self.__disjunction)]
+                if any(m.negate() == n
+                       for m, n in combinations(disjunction, r=2)):
+                    continue
                 inequalities = [(v1 if v1 != arg2.name else arg1.name,
                                  v2 if v2 != arg2.name else arg1.name)
                                 for v1, v2 in self.__inequalities]
