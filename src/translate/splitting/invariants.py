@@ -18,7 +18,7 @@ from .sat_solver import Context
 N = 2  # Maximum size of disjunctive invariants; the name is got from the paper
 
 
-def find_distinct_args(task: Task) -> Dict[str, Dict[str, List[str]]]:
+def find_distinct_args(task: Task) -> Dict[str, Dict[str, Set[str]]]:
     """Finds distinct arguments of actions
 
     Arguments of an action with the same type might not be possible to
@@ -32,7 +32,7 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, List[str]]]:
 
     For example, for an action with name 'a', if we know its argument
     "?x" is distinct with the arguments "?y" and "?z", then we'll have:
-    `find_distinct_args(task)['a']['?x'] == ['?y', '?z']`
+    `find_distinct_args(task)['a']['?x'] == {'?y', '?z'}`
     """
     if not __is_domain_supported(task):
         # Return a non-restricting output
@@ -43,9 +43,9 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, List[str]]]:
     invariants = __find_schematic_invariants_in_initial_state(init,
                                                               predicates,
                                                               types)
-    invariants = __find_invariants(task, invariants)
-    for invariant in invariants:
-        print("Invariant:", invariant)
+    init_invariants, grounded_actions = __create_limited_task(task, invariants)
+    invariants = __find_invariants(init_invariants, grounded_actions)
+    return __find_distinct_args(task, invariants, grounded_actions)
 
 def __is_domain_supported(task: Task):
     for requirement in task.requirements.requirements:
@@ -511,15 +511,20 @@ def __ground_action(action: Action, types: Dict[str, __LimitedType]):
                                        action.cost))
     return grounded_actions
 
-def __find_invariants(task: Task,
-                      schematic_invariants: List[__SchematicInvariant]):
+def __create_limited_task(task: Task,
+                          schematic_invariants: List[__SchematicInvariant]):
     types = __construct_limited_types(task)
-    grounded_actions = []
+    grounded_actions: List[Action] = []
     for action in task.actions:
         grounded_actions.extend(__ground_action(action, types))
     invariants = list(chain(*(i.instantiate(types)
                               for i in schematic_invariants)))
     invariants = __find_novel_invariants([], invariants)
+    return invariants, grounded_actions
+
+def __find_invariants(init_invariants: List[List[Literal]],
+                      grounded_actions: List[Action]):
+    invariants = init_invariants
     context = Context()
     context.add_scope()
     level_off = False
@@ -537,3 +542,44 @@ def __find_invariants(task: Task,
                                                           invariants)
             level_off &= not is_modified
     return invariants
+
+def __find_distinct_args(task: Task,
+                         invariants: List[List[Literal]],
+                         grounded_actions: List[Action]):
+    context = Context()
+    for invariant in invariants:
+        context.add_clause(invariant)
+    def is_applicable(ground_action: Action):
+        context.add_scope()
+        for precondition in get_conditions(ground_action.precondition):
+            context.add_clause([precondition])
+        applicable = context.is_satisfiable()
+        context.drop_scope()
+        return applicable
+
+    parameters = {a.name: a.parameters for a in task.actions}
+    # We assume all args are distinct, unless we find an applicable ground
+    # action that some of its arguments is unified with the same value.
+    distinct_args: Dict[str, Dict[str, Set[str]]] = {}
+    for action, params in parameters.items():
+        for p1 in params:
+            for p2 in params:
+                if p1.name == p2.name:
+                    continue
+                (distinct_args
+                .setdefault(action, {})
+                .setdefault(p1.name, set())
+                .add(p2.name))
+    
+    for action in grounded_actions:
+        same_args = []
+        for (p1, v1), (p2, v2) in combinations(zip(parameters[action.name],
+                                                   action.parameters),
+                                               r=2):
+            if v1.name == v2.name:
+                same_args.append((p1.name, p2.name))
+        if same_args and is_applicable(action):
+            for p1, p2 in same_args:
+                distinct_args[action.name][p1].discard(p2)
+                distinct_args[action.name][p2].discard(p1)
+    return distinct_args
