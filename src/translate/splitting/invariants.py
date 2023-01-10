@@ -343,7 +343,7 @@ class __SchematicInvariant:
                 disjunction = deepcopy(self.__disjunction)
                 for literal in disjunction:
                     literal.args = tuple(values[a.name] for a in literal.args)
-                yield disjunction
+                yield set(disjunction)
 
 
 def __find_schematic_invariants_in_initial_state(initial_state: Set[Atom],
@@ -376,15 +376,28 @@ def __find_schematic_invariants_in_initial_state(initial_state: Set[Atom],
             candidates.extend(candidate_invariant.weaken(predicates, types))
     return invariants
 
-def __weaken_invariant(invariant: List[Literal], effects: List[Effect]):
+def __weaken_invariant(invariant: Set[Literal], effects: List[Effect]):
     if len(invariant) >= N:
         return []
     not_literal = [l.negate() for l in invariant]
-    return [[*invariant, e] for e in effects if e not in not_literal]
+    effects = [e.literal for e in effects]
+    return [{*invariant, e} for e in effects if e not in not_literal]
+
+def __find_novel_invariants(existing_invariants: List[Set[Literal]],
+                            new_invariants: List[Set[Literal]]):
+    new_invariants.sort(key=len)
+    novel_invariants: List[Set[Literal]] = list()
+    for new_invariant in new_invariants:
+        for existing_invariant in existing_invariants + novel_invariants:
+            if existing_invariant.issubset(new_invariant):
+                break
+        else:
+            novel_invariants.append(new_invariant)
+    return novel_invariants
 
 def __is_possibly_violated(context: Context, 
                            effects: List[Effect],
-                           invariant: List[Literal]):
+                           invariant: Set[Literal]):
     not_invariant = [l.negate() for l in invariant]
     for effect in effects:
         if effect.literal in invariant:
@@ -406,9 +419,9 @@ def __is_possibly_violated(context: Context,
 
 def __refine_invariants(context: Context,
                         action: Action,
-                        invariants: List[List[Literal]]):
+                        invariants: List[Set[Literal]]):
     context.add_scope()
-    refined_invariants = []
+    refined_invariants: List[Set[Literal]] = []
     for condition in get_conditions(action.precondition):
         context.add_clause([condition])
     is_modified = False
@@ -416,8 +429,9 @@ def __refine_invariants(context: Context,
         invariant = invariants.pop()
         if __is_possibly_violated(context, action.effects, invariant):
             weakened_invariants = __weaken_invariant(invariant, action.effects)
-            if weakened_invariants:
-                invariants.extend(weakened_invariants)
+            invariants.extend(__find_novel_invariants(  refined_invariants
+                                                      + invariants,
+                                                      weakened_invariants))
             is_modified = True
         else:
             refined_invariants.append(invariant)
@@ -506,15 +520,15 @@ def __find_invariants(task: Task,
         grounded_actions.extend(__ground_action(action, types))
     invariants = list(chain(*(i.instantiate(types)
                               for i in schematic_invariants)))
+    invariants = __find_novel_invariants([], invariants)
     context = Context()
     context.add_scope()
     level_off = False
     while not level_off:
         level_off = True
         is_modified = True
-        for grounded_action in enumerate(grounded_actions):
+        for grounded_action in grounded_actions:
             if is_modified:
-                print("new invariants")
                 context.drop_scope()
                 context.add_scope()
                 for invariant in invariants:

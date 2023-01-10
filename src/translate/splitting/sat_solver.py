@@ -1,4 +1,4 @@
-from typing import List
+from typing import Iterable
 from z3 import Bool, Not, Or, Solver, sat
 
 from pddl import Literal, Atom, TypedObject
@@ -16,7 +16,7 @@ class Context:
         self.__solver.pop()
         return self
 
-    def add_clause(self, clause: List[Literal]):
+    def add_clause(self, clause: Iterable[Literal]):
         def get_boolean(literal: Literal):
             arguments = (a.name if isinstance(a, TypedObject) else a
                          for a in literal.args)
