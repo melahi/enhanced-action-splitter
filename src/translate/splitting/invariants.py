@@ -44,7 +44,9 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, List[str]]]:
     invariants = __find_schematic_invariants_in_initial_state(init,
                                                               predicates,
                                                               types)
-    limited_task = __create_limited_instance(task, invariants)
+    invariants = __find_invariants(task, invariants)
+    for invariant in invariants:
+        print("Invariant:", invariant)
 
 def __is_domain_supported(task: Task):
     for requirement in task.requirements.requirements:
@@ -374,27 +376,53 @@ def __find_schematic_invariants_in_initial_state(initial_state: Set[Atom],
             candidates.extend(candidate_invariant.weaken(predicates, types))
     return invariants
 
-def __ground_action(action: Action, types: Dict[str, '__AbstractType']):
-    grounded_actions: List[Action] = list()
-    for values in product(*(types[p.type_name].domain
-                            for p in action.parameters)):
-        mappings = {p.name: v for p, v in zip(action.parameters, values)}
-        preconditions = [c.rename_variables(mappings)
-                         for c in get_conditions(action.precondition)]
-        effects = [Effect(e.parameters,
-                          Conjunction([c.rename_variables(mappings)
-                                       for c in get_conditions(e.condition)]),
-                          e.literal.rename_variables(mappings))
-                   for e in action.effects]
-        parameters = [TypedObject(mappings[p.name], p.type_name)
-                      for p in action.parameters]
-        grounded_actions.append(Action(action.name,
-                                       parameters, 
-                                       action.num_external_parameters,
-                                       Conjunction(preconditions),
-                                       effects,
-                                       action.cost))
-    return grounded_actions
+def __weaken_invariant(invariant: List[Literal], effects: List[Effect]):
+    if len(invariant) >= N:
+        return []
+    not_literal = [l.negate() for l in invariant]
+    return [[*invariant, e] for e in effects if e not in not_literal]
+
+def __is_possibly_violated(context: Context, 
+                           effects: List[Effect],
+                           invariant: List[Literal]):
+    not_invariant = [l.negate() for l in invariant]
+    for effect in effects:
+        if effect.literal in invariant:
+            return False
+        try:
+            not_invariant.remove(effect.literal)
+        except ValueError:
+            pass
+    if len(not_invariant) == len(invariant):
+        # These effects don't modify the invariant
+        return False
+
+    context.add_scope()
+    for literal in not_invariant:
+        context.add_clause([literal])
+    is_violated = context.is_satisfiable()
+    context.drop_scope()
+    return is_violated
+
+def __refine_invariants(context: Context,
+                        action: Action,
+                        invariants: List[List[Literal]]):
+    context.add_scope()
+    refined_invariants = []
+    for condition in get_conditions(action.precondition):
+        context.add_clause([condition])
+    is_modified = False
+    while invariants:
+        invariant = invariants.pop()
+        if __is_possibly_violated(context, action.effects, invariant):
+            weakened_invariants = __weaken_invariant(invariant, action.effects)
+            if weakened_invariants:
+                invariants.extend(weakened_invariants)
+            is_modified = True
+        else:
+            refined_invariants.append(invariant)
+    context.drop_scope()
+    return is_modified, refined_invariants
 
 def __find_root(types: Dict[str, __AbstractType]):
     root = None
@@ -470,11 +498,29 @@ def __ground_action(action: Action, types: Dict[str, __LimitedType]):
                                        action.cost))
     return grounded_actions
 
-def __create_limited_instance(task: Task,
-                              schematic_invariants: List[__SchematicInvariant]):
+def __find_invariants(task: Task,
+                      schematic_invariants: List[__SchematicInvariant]):
     types = __construct_limited_types(task)
-    invariants = list(chain(*(i.instantiate(types)
-                              for i in schematic_invariants)))
     grounded_actions = []
     for action in task.actions:
         grounded_actions.extend(__ground_action(action, types))
+    invariants = list(chain(*(i.instantiate(types)
+                              for i in schematic_invariants)))
+    context = Context()
+    context.add_scope()
+    level_off = False
+    while not level_off:
+        level_off = True
+        is_modified = True
+        for grounded_action in enumerate(grounded_actions):
+            if is_modified:
+                print("new invariants")
+                context.drop_scope()
+                context.add_scope()
+                for invariant in invariants:
+                    context.add_clause(invariant)
+            is_modified, invariants = __refine_invariants(context,
+                                                          grounded_action,
+                                                          invariants)
+            level_off &= not is_modified
+    return invariants
