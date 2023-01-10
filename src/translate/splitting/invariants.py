@@ -170,8 +170,7 @@ def __construct_types(pddl_types: List[Type], objects: List[TypedObject]):
     root_type.add_to_domain(objects)
     return types
 
-
-def __get_max_objects_needed_for_actions(actions: Iterable[Action]):
+def __get_constants(action: Action):
     def get_constants_in_formula(formula):
         if isinstance(formula, Literal):
             return {a for a in formula.args if not is_variable(a)}
@@ -186,16 +185,16 @@ def __get_max_objects_needed_for_actions(actions: Iterable[Action]):
             return (  get_constants_in_formula(effect.condition)
                     | get_constants_in_formula(effect.literal))
         raise NotImplementedError(f"Unknown effect type: {type(effect)}")
-    def get_constants(action: Action):
-        return (  get_constants_in_formula(action.precondition)
-                | set().union(*(get_constants_in_effect(e)
-                                for e in action.effects)))
+    return (  get_constants_in_formula(action.precondition)
+            | set().union(*(get_constants_in_effect(e)
+                            for e in action.effects)))
 
+def __get_max_objects_needed_for_actions(actions: Iterable[Action]):
     max_objects_for_actions = dict()
     constants = set()
     for action in actions:
         counter = dict()
-        constants_in_action = get_constants(action)
+        constants_in_action = __get_constants(action)
         constants_in_action = {c.name if isinstance(c, TypedObject) else c
                                for c in constants_in_action}
         for symbol in constants_in_action.union(action.parameters):
@@ -423,12 +422,14 @@ def __construct_limited_types(task: Task):
                                       objects_needed)
     return __get_all_limited_types(root_limited_type)
 
-def __ground_action(action: Action, types: List[__LimitedType]):
+def __ground_action(action: Action, types: Dict[str, __LimitedType]):
     def types_comparison(obj1: TypedObject, obj2: TypedObject):
         if types[obj1.type_name].is_subtype(obj2.type_name):
             return -1
         return int(types[obj2.type_name].is_subtype(obj1.type_name))
 
+    constants = {c.name if isinstance(c, TypedObject) else c
+                 for c in __get_constants(action)}
     # Order the parameters so that more general types placed later
     parameters = sorted(action.parameters, key=cmp_to_key(types_comparison))
     domains: List[List[str]] = []
@@ -441,10 +442,14 @@ def __ground_action(action: Action, types: List[__LimitedType]):
                     if value not in domains[i]:
                         domains[i].append(value)
                         break
-        for _object in types[parameters[i].type_name].domain:
-            if _object.name not in domains[i]:
-                domains[i].append(_object.name)
+        for obj in types[parameters[i].type_name].domain:
+            if obj.name not in domains[i] and obj.name not in constants:
+                domains[i].append(obj.name)
                 break
+    for domain, parameter in zip(domains, parameters):
+        for constant in constants:
+            if constant in [o.name for o in types[parameter.type_name].domain]:
+                domain.append(constant)
     grounded_actions: List[Action] = []
     for values in product(*domains):
         mappings = {p.name: v for p, v in zip(parameters, values)}
