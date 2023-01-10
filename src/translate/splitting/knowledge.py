@@ -1,4 +1,4 @@
-from typing import Iterable, List, Tuple, Dict
+from typing import Iterable, List, Tuple, Dict, Set
 from itertools import product, chain
 
 import pandas as pd
@@ -44,6 +44,9 @@ class Knowledge:
         self.__statics: Dict[str, pd.DataFrame] = dict() # Static relations
 
         self.__type_parent: Dict[str, str] = dict() # Types' parent relation
+
+        # Action names to their distinct arguments
+        self.__distinct_args: Dict[str, Dict[str, Set[str]]] = dict()
 
         self.__set_statics(task)
         self.__set_static_function()
@@ -125,13 +128,16 @@ class Knowledge:
 
         return is_ancestor(type1, type2) or is_ancestor(type2, type1)
 
+    def get_distinct_args(self, action_name: str):
+        return self.__distinct_args[action_name].copy()
+
     def __extract_knowledge(self, task: Task):
         normalize.normalize(task)
         self.__extract_domains(task)
         task = self.__filter_not_instantiable_actions(task)
-        distinct_args = find_distinct_args(task)
+        self.__distinct_args = find_distinct_args(task)
         # TODO: Perhaps I can find `reachable_action_params` needed for the
-        #       following function, by using `distinct_args`.
+        #       following function, by using or own versions of `invariants`.
         invariants = find_invariants(task, None)
         invariant_size = self.__exactly_one_invariants(invariants, task.init)
         for invariant in invariant_size:

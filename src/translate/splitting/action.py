@@ -547,7 +547,7 @@ class Action:
         return self.__knowledge.all_count_estimate(args, conditions)
 
     def __find_distinct_args(self, preconditions: List[Literal]):
-        distinct_args = {}
+        distinct_args = self.__knowledge.get_distinct_args(self.__name)
         def get_name(arg):
             return arg.name if isinstance(arg, TypedObject) else arg
         for precondition in preconditions:
@@ -557,12 +557,12 @@ class Action:
                 continue
             name1 = get_name(precondition.args[0])
             name2 = get_name(precondition.args[1])
-            distinct_args.setdefault(name1, []).append(name2)
-            distinct_args.setdefault(name2, []).append(name1)
+            distinct_args.setdefault(name1, set()).add(name2)
+            distinct_args.setdefault(name2, set()).add(name1)
 
         for arg1, arg2 in combinations(self.__args, 2):
             type1, type2 = (arg1.type_name, arg2.type_name)
             if not self.__knowledge.has_shared_elements(type1, type2):
-                distinct_args.setdefault(arg1.name, []).append(arg2.name)
-                distinct_args.setdefault(arg2.name, []).append(arg1.name)
+                distinct_args.setdefault(arg1.name, set()).add(arg2.name)
+                distinct_args.setdefault(arg2.name, set()).add(arg1.name)
         return distinct_args

@@ -15,7 +15,7 @@ class AtomicActionPart:
 
     def is_threatened_by(self,
                          transition: 'Transition',
-                         distinct_args: Dict[str, List[str]]) -> bool:
+                         distinct_args: Dict[str, Set[str]]) -> bool:
         raise NotImplementedError
 
     def to_string(self, indent) -> str:
@@ -30,7 +30,7 @@ class AtomicActionPart:
     @staticmethod
     def _are_possibly_the_same(literal1: Literal,
                                literal2: Literal,
-                               distinct_args: Dict[str, List[str]]) -> bool:
+                               distinct_args: Dict[str, Set[str]]) -> bool:
         if literal1.predicate != literal2.predicate:
             return False
         for arg1, arg2 in zip(literal1.args, literal2.args):
@@ -38,7 +38,7 @@ class AtomicActionPart:
                 arg1 = arg1.name
             if isinstance(arg2, TypedObject):
                 arg2 = arg2.name
-            if arg2 in distinct_args.get(arg1, []):
+            if arg2 in distinct_args.get(arg1, set()):
                 return False
             if arg1.startswith("?") or arg2.startswith("?"):
                 continue
@@ -69,7 +69,7 @@ class Condition(AtomicActionPart):
 
     def is_threatened_by(self,
                          transition: 'Transition',
-                         distinct_args: Dict[str, List[str]]) -> bool:
+                         distinct_args: Dict[str, Set[str]]) -> bool:
         for effect in transition.effects:
             if self._are_possibly_the_same(self.__condition,
                                            effect,
@@ -139,7 +139,7 @@ class Transition(AtomicActionPart):
 
     def is_threatened_by(self,
                          transition: 'Transition',
-                         distinct_args: Dict[str, List[str]]) -> bool:
+                         distinct_args: Dict[str, Set[str]]) -> bool:
         for effect in transition.effects:
             for condition in self.__conditions:
                 if self._are_possibly_the_same(effect,
@@ -250,7 +250,7 @@ class MicroAction:
 
     def is_threatened_by(self,
                          other: 'MicroAction',
-                         distinct_args: Dict[str, List[str]]) -> bool:
+                         distinct_args: Dict[str, Set[str]]) -> bool:
         if self == other:
             return False
         parts = self.__preconditions + self.__transitions
@@ -268,7 +268,8 @@ class MicroAction:
 
     def update_partial_state(self,
                              partial_state: Set[Condition],
-                             distinct_args: Dict[str, List[str]]) -> Set[Condition]:
+                             distinct_args: Dict[str, Set[str]]
+                            ) -> Set[Condition]:
         partial_state.update(self.__preconditions)
         new_partial_state = set()
         for condition in partial_state:
