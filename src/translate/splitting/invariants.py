@@ -3,12 +3,11 @@
 
 from typing import Dict, List, Set, Tuple, Iterable, Optional
 from abc import ABC, abstractmethod
-from math import prod
 from itertools import chain, count, combinations, product
-from functools import cmp_to_key
+from functools import cmp_to_key, reduce
 
 from pddl import Task, Action, Effect, Predicate, Literal, Atom, TypedObject
-from pddl import Type, Conjunction, Truth
+from pddl import Type, Conjunction
 from pddl.conditions import JunctorCondition, QuantifiedCondition
 from pddl.conditions import ConstantCondition
 
@@ -507,7 +506,7 @@ def __ground_action(action: Action, types: Dict[str, __LimitedType]):
         for constant in constants:
             if constant in [o.name for o in types[parameter.type_name].domain]:
                 domain.append(constant)
-    ground_size = prod([len(d) for d in domains])
+    ground_size = reduce(lambda x, y: x * y, [len(d) for d in domains], 1)
     if ground_size > MAX_GROUND_SIZE:
         print(f"Skip grounding {action.name}; size: {ground_size}")
         return None
