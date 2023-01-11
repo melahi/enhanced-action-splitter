@@ -361,10 +361,10 @@ class Action:
                         preconditional_micro_actions_count += 1
 
                 self.__cost = (len(self.__preconditions),
-                               preconditional_micro_actions_count,
                                # sum(decisions),
-                               decisions,
                                variables_spans,
+                               preconditional_micro_actions_count,
+                               decisions,
                                len(self.__micro_actions),
                                ground_estimate)
                 return self.__cost
