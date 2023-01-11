@@ -18,8 +18,6 @@ from .random_walk import random_walk
 # print("BEAM_SEARCH_WIDTH:", BEAM_SEARCH_WIDTH)
 # DECISION_THRESHOLD = 2
 # print("DECISION THRESHOLD:", DECISION_THRESHOLD)
-RANDOM_WALKS_TIMEOUT = 20
-print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)
 
 
 class Action:
@@ -34,12 +32,14 @@ class Action:
     def __init__(self,
                  knowledge: Knowledge,
                  action: pddl.Action,
-                 size_threshold: int):
+                 size_threshold: int,
+                 random_walk_timeout: int):
         self.__knowledge = knowledge
         self.__new_objects = []
         self.__new_predicates = []
         self.__name = action.name
         self.__args = action.parameters
+        self.__random_walk_timeout = random_walk_timeout
         preconditions = get_conditions(action.precondition)
         self.__distinct_args = self.__find_distinct_args(preconditions)
         self.__micro_actions = self.__split_action(action, size_threshold)
@@ -438,7 +438,7 @@ class Action:
                                  remaining_transitions)
 
         initial = Candidate([MicroAction()], preconditions, transitions)
-        best = random_walk(initial, RANDOM_WALKS_TIMEOUT)
+        best = random_walk(initial, self.__random_walk_timeout)
         print(self.__name, "best candidate cost:", best.cost)
         return best.ordered_micro_actions()
 

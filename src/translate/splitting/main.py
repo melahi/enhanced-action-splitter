@@ -20,16 +20,24 @@ from .task_to_string import output
 from .plan_merger import main as plan_merger
 
 
-SIZE_THRESHOLD = 10000
+SIZE_THRESHOLD = 100000
+RANDOM_WALKS_TIMEOUT = 200
 print("SIZE THRESHOLD:", SIZE_THRESHOLD)
+print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)
 
 
 def split():
     task = pddl_parser.open(arguments[0], arguments[1])
     with timers.timing("Extract knowledge", block=True):
         knowledge = Knowledge(task)
-    with timers.timing("Splitting actions", block=False):
-        actions = [Action(knowledge, action, SIZE_THRESHOLD)
+    with timers.timing("Splitting actions", block=True):
+        print("size threshold:", SIZE_THRESHOLD / len(task.actions))
+        print("random walks timeout:",
+              max(3.0, RANDOM_WALKS_TIMEOUT / len(task.actions)))
+        actions = [Action(knowledge,
+                          action,
+                          SIZE_THRESHOLD / len(task.actions),
+                          max(3, RANDOM_WALKS_TIMEOUT / len(task.actions)))
                    for action in task.actions]
     output(task, actions)
 
