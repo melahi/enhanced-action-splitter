@@ -379,6 +379,10 @@ def __find_schematic_invariants_in_initial_state(initial_state: Set[Atom],
 def __weaken_invariant(invariant: Set[Literal], effects: List[Effect]):
     if len(invariant) >= N:
         return []
+    # TODO: I should think more about this part, because actions are
+    #       not instantiated with all possible values; so, perhaps we
+    #       need to consider more general case in weakening an
+    #       invariant (or, what we have done might be sufficient).
     not_literal = [l.negate() for l in invariant]
     effects = [e.literal for e in effects]
     return [{*invariant, e} for e in effects if e not in not_literal]
@@ -424,6 +428,9 @@ def __refine_invariants(context: Context,
     refined_invariants: List[Set[Literal]] = []
     for condition in get_conditions(action.precondition):
         context.add_clause([condition])
+    if not context.is_satisfiable():
+        context.drop_scope()
+        return False, invariants
     is_modified = False
     while invariants:
         invariant = invariants.pop()
@@ -527,21 +534,18 @@ def __find_invariants(init_invariants: List[List[Literal]],
                       grounded_actions: List[Action]):
     invariants = init_invariants
     context = Context()
-    context.add_scope()
     level_off = False
     while not level_off:
         level_off = True
-        is_modified = True
+        context.add_scope()
+        for invariant in invariants:
+            context.add_clause(invariant)
         for grounded_action in grounded_actions:
-            if is_modified:
-                context.drop_scope()
-                context.add_scope()
-                for invariant in invariants:
-                    context.add_clause(invariant)
             is_modified, invariants = __refine_invariants(context,
                                                           grounded_action,
                                                           invariants)
             level_off &= not is_modified
+        context.drop_scope()
     return invariants
 
 def __find_distinct_args(task: Task,
