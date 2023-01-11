@@ -36,7 +36,8 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, Set[str]]]:
     """
     if not __is_domain_supported(task):
         # Return a non-restricting output
-        return {a: {p.name: [] for p in a.parameters} for a in task.actions}
+        return {a.name: {p.name: set() for p in a.parameters}
+                for a in task.actions}
     types = __construct_types(task.types, task.objects)
     init = {l for l in task.init if isinstance(l, Atom)}
     predicates = [p for p in task.predicates if p.name != "="]
