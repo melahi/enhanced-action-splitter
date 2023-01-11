@@ -95,7 +95,7 @@ class Action:
                 variables = self.__knowledge.get_variables(effect)
                 transitions.append(Transition(conditions, effect, variables))
             elif isinstance(effect, NegatedAtom):
-                if not self.__knowledge.get_variables(effect):
+                if True or not self.__knowledge.get_variables(effect):
                     transitions.append(Transition(conditions, effect, set()))
                 else:
                     del_effects.append((conditions, effect))
@@ -363,7 +363,7 @@ class Action:
                 self.__cost = (len(self.__preconditions),
                                # sum(decisions),
                                variables_spans,
-                               preconditional_micro_actions_count,
+                               # preconditional_micro_actions_count,
                                decisions,
                                len(self.__micro_actions),
                                ground_estimate)
