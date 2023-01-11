@@ -3,6 +3,7 @@
 
 from typing import Dict, List, Set, Tuple, Iterable, Optional
 from abc import ABC, abstractmethod
+from math import prod
 from itertools import chain, count, combinations, product
 from functools import cmp_to_key
 
@@ -16,6 +17,7 @@ from .sat_solver import Context
 
 
 N = 2  # Maximum size of disjunctive invariants; the name is got from the paper
+MAX_GROUND_SIZE = 10000
 
 
 def find_distinct_args(task: Task) -> Dict[str, Dict[str, Set[str]]]:
@@ -35,18 +37,24 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, Set[str]]]:
     `find_distinct_args(task)['a']['?x'] == {'?y', '?z'}`
     """
     if not __is_domain_supported(task):
-        # Return a non-restricting output
-        return {a.name: {p.name: set() for p in a.parameters}
-                for a in task.actions}
+        return __get_non_restricting_args(task)
+    limited_types = __construct_limited_types(task)
+    grounded_actions = __limited_ground_actions(task.actions, limited_types)
+    if grounded_actions is None:
+        return __get_non_restricting_args(task)
     types = __construct_types(task.types, task.objects)
     init = {l for l in task.init if isinstance(l, Atom)}
     predicates = [p for p in task.predicates if p.name != "="]
-    invariants = __find_schematic_invariants_in_initial_state(init,
-                                                              predicates,
-                                                              types)
-    init_invariants, grounded_actions = __create_limited_task(task, invariants)
+    init_invariants = __find_schematic_invariants_in_initial_state(init,
+                                                                   predicates,
+                                                                   types)
+    init_invariants = __ground_invariants(limited_types, init_invariants)
     invariants = __find_invariants(init_invariants, grounded_actions)
     return __find_distinct_args(task, invariants, grounded_actions)
+
+def __get_non_restricting_args(task: Task):
+    return {a.name: {p.name: set() for p in a.parameters}
+            for a in task.actions}
 
 def __is_domain_supported(task: Task):
     for requirement in task.requirements.requirements:
@@ -499,6 +507,10 @@ def __ground_action(action: Action, types: Dict[str, __LimitedType]):
         for constant in constants:
             if constant in [o.name for o in types[parameter.type_name].domain]:
                 domain.append(constant)
+    ground_size = prod([len(d) for d in domains])
+    if ground_size > MAX_GROUND_SIZE:
+        print(f"Skip grounding {action.name}; size: {ground_size}")
+        return None
     grounded_actions: List[Action] = []
     for values in product(*domains):
         mappings = {p.name: v for p, v in zip(parameters, values)}
@@ -519,16 +531,22 @@ def __ground_action(action: Action, types: Dict[str, __LimitedType]):
                                        action.cost))
     return grounded_actions
 
-def __create_limited_task(task: Task,
-                          schematic_invariants: List[__SchematicInvariant]):
-    types = __construct_limited_types(task)
+def __limited_ground_actions(actions: List[Action],
+                             types: Dict[str, __LimitedType]):
     grounded_actions: List[Action] = []
-    for action in task.actions:
-        grounded_actions.extend(__ground_action(action, types))
+    for action in actions:
+        new_grounded_actions = __ground_action(action, types)
+        if new_grounded_actions is None:
+            return None
+        grounded_actions.extend(new_grounded_actions)
+    return grounded_actions
+
+def __ground_invariants(types: Dict[str, __AbstractType],
+                        schematic_invariants: List[__SchematicInvariant]):
     invariants = list(chain(*(i.instantiate(types)
                               for i in schematic_invariants)))
     invariants = __find_novel_invariants([], invariants)
-    return invariants, grounded_actions
+    return invariants
 
 def __find_invariants(init_invariants: List[List[Literal]],
                       grounded_actions: List[Action]):
