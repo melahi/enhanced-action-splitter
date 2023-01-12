@@ -73,8 +73,7 @@ class Condition(AtomicActionPart):
         for effect in transition.effects:
             if self._are_possibly_the_same(self.__condition,
                                            effect,
-                                           # distinct_args):  Temporary fix 
-                                           {}):
+                                           distinct_args):
                 return True
         return False
 

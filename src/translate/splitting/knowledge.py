@@ -135,7 +135,7 @@ class Knowledge:
         normalize.normalize(task)
         self.__extract_domains(task)
         task = self.__filter_not_instantiable_actions(task)
-        self.__distinct_args = find_distinct_args(task)
+        task, self.__distinct_args = find_distinct_args(task)
         # TODO: Perhaps I can find `reachable_action_params` needed for the
         #       following function, by using or own versions of `invariants`.
         invariants = find_invariants(task, None)

@@ -7,7 +7,7 @@ from itertools import chain, count, combinations, product
 from functools import cmp_to_key, reduce
 
 from pddl import Task, Action, Effect, Predicate, Literal, Atom, TypedObject
-from pddl import Type, Conjunction
+from pddl import Type, Conjunction, NegatedAtom
 from pddl.conditions import JunctorCondition, QuantifiedCondition
 from pddl.conditions import ConstantCondition
 
@@ -19,7 +19,8 @@ N = 2  # Maximum size of disjunctive invariants; the name is got from the paper
 MAX_GROUND_SIZE = 10000
 
 
-def find_distinct_args(task: Task) -> Dict[str, Dict[str, Set[str]]]:
+def find_distinct_args(task: Task) -> Tuple[Task,
+                                            Dict[str, Dict[str, Set[str]]]]:
     """Finds distinct arguments of actions
 
     Arguments of an action with the same type might not be possible to
@@ -49,11 +50,14 @@ def find_distinct_args(task: Task) -> Dict[str, Dict[str, Set[str]]]:
                                                                    types)
     init_invariants = __ground_invariants(limited_types, init_invariants)
     invariants = __find_invariants(init_invariants, grounded_actions)
-    return __find_distinct_args(task, invariants, grounded_actions)
+    distinct_args = __find_distinct_args(task, invariants, grounded_actions)
+    # completed_task = __complete_task(task, types, distinct_args)
+    completed_task = task
+    return completed_task, distinct_args
 
 def __get_non_restricting_args(task: Task):
-    return {a.name: {p.name: set() for p in a.parameters}
-            for a in task.actions}
+    return task, {a.name: {p.name: set() for p in a.parameters}
+                  for a in task.actions}
 
 def __is_domain_supported(task: Task):
     for requirement in task.requirements.requirements:
@@ -605,3 +609,24 @@ def __find_distinct_args(task: Task,
                 distinct_args[action.name][p1].discard(p2)
                 distinct_args[action.name][p2].discard(p1)
     return distinct_args
+
+def __complete_task(task: Task,
+                    types: Dict[str, __AbstractType],
+                    distinct_args: Dict[str, Dict[str, Set[str]]]):
+    """ Adds argument inequalities of actions to their preconditions """
+    for action in task.actions:
+        preconditions = get_conditions(action.precondition)
+        inequalities = [(l.args[0], l.args[1]) for l in preconditions
+                        if isinstance(l, NegatedAtom) and l.predicate == "="]
+        for p1, p2 in combinations(action.parameters, r=2):
+            if p2.name not in distinct_args[action.name][p1.name]:
+                continue
+            if (   (p1.name, p2.name) in inequalities
+                or (p2.name, p1.name) in inequalities):
+                continue
+            if (set(types[p1.type_name].domain)
+                .isdisjoint(types[p2.type_name].domain)):
+                continue
+            preconditions += [NegatedAtom("=", [p1.name, p2.name])]
+        action.precondition = Conjunction(preconditions)
+    return task
