@@ -6,7 +6,7 @@ import pandas as pd
 import normalize
 from invariant_finder import find_invariants
 from invariants import Invariant
-from .invariants import find_distinct_args
+from .invariants import construct_arg_expert
 from pddl import Task, Literal, Atom, Assign, Effect
 from pddl.conditions import Conjunction, ConstantCondition
 from pddl.conditions import JunctorCondition, Truth
@@ -45,8 +45,7 @@ class Knowledge:
 
         self.__type_parent: Dict[str, str] = dict() # Types' parent relation
 
-        # Action names to their distinct arguments
-        self.__distinct_args: Dict[str, Dict[str, Set[str]]] = dict()
+        self.__arg_expert = construct_arg_expert(task)
 
         self.__set_statics(task)
         self.__set_static_function()
@@ -57,6 +56,10 @@ class Knowledge:
     @property
     def default_objects(self):
         return {t: self.__objects[t][0] for t in self.__objects}
+
+    @property
+    def arg_expert(self):
+        return self.__arg_expert
 
     def is_static(self, predicate_name: str):
         return predicate_name in self.__statics
@@ -128,14 +131,10 @@ class Knowledge:
 
         return is_ancestor(type1, type2) or is_ancestor(type2, type1)
 
-    def get_distinct_args(self, action_name: str):
-        return self.__distinct_args[action_name].copy()
-
     def __extract_knowledge(self, task: Task):
         normalize.normalize(task)
         self.__extract_domains(task)
         task = self.__filter_not_instantiable_actions(task)
-        task, self.__distinct_args = find_distinct_args(task)
         # TODO: Perhaps I can find `reachable_action_params` needed for the
         #       following function, by using or own versions of `invariants`.
         invariants = find_invariants(task, None)

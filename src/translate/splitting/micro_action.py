@@ -1,10 +1,11 @@
 import copy
-from typing import List, Set, Dict
+from typing import List, Set, Dict, Optional
 
 from pddl.conditions import Literal
 from pddl.pddl_types import TypedObject
 
 from .common import literal_to_string
+from .invariants import ArgExpert
 
 class AtomicActionPart:
     def __str__(self):
@@ -15,7 +16,10 @@ class AtomicActionPart:
 
     def is_threatened_by(self,
                          transition: 'Transition',
-                         distinct_args: Dict[str, Set[str]]) -> bool:
+                         distinct_args: Dict[str, Set[str]],
+                         action_name: str,
+                         conditions: List[Literal],
+                         arg_expert: Optional[ArgExpert]) -> bool:
         raise NotImplementedError
 
     def to_string(self, indent) -> str:
@@ -30,9 +34,14 @@ class AtomicActionPart:
     @staticmethod
     def _are_possibly_the_same(literal1: Literal,
                                literal2: Literal,
-                               distinct_args: Dict[str, Set[str]]) -> bool:
+                               distinct_args: Dict[str, Set[str]],
+                               action_name: str,
+                               conditions: List[Literal],
+                               arg_expert: Optional[ArgExpert]) -> bool:
         if literal1.predicate != literal2.predicate:
             return False
+        if literal1.args == literal2.args:
+            return True
         for arg1, arg2 in zip(literal1.args, literal2.args):
             if isinstance(arg1, TypedObject):
                 arg1 = arg1.name
@@ -44,6 +53,11 @@ class AtomicActionPart:
                 continue
             if arg1 != arg2:
                 return False
+        if arg_expert is not None and arg_expert.are_distinct(action_name,
+                                                              literal1,
+                                                              literal2,
+                                                              conditions):
+            return False
         return True
 
 
@@ -69,11 +83,17 @@ class Condition(AtomicActionPart):
 
     def is_threatened_by(self,
                          transition: 'Transition',
-                         distinct_args: Dict[str, Set[str]]) -> bool:
+                         distinct_args: Dict[str, Set[str]],
+                         action_name: str,
+                         conditions: List[Literal],
+                         arg_expert: Optional[ArgExpert]) -> bool:
         for effect in transition.effects:
             if self._are_possibly_the_same(self.__condition,
                                            effect,
-                                           distinct_args):
+                                           distinct_args,
+                                           action_name,
+                                           conditions + [self.__condition],
+                                           arg_expert):
                 return True
         return False
 
@@ -139,12 +159,18 @@ class Transition(AtomicActionPart):
 
     def is_threatened_by(self,
                          transition: 'Transition',
-                         distinct_args: Dict[str, Set[str]]) -> bool:
+                         distinct_args: Dict[str, Set[str]],
+                         action_name: str,
+                         existing_condition: List[Literal],
+                         arg_expert: Optional[ArgExpert]) -> bool:
         for effect in transition.effects:
             for condition in self.__conditions:
                 if self._are_possibly_the_same(effect,
                                                condition,
-                                               distinct_args):
+                                               distinct_args,
+                                               action_name,
+                                               existing_condition+[condition],
+                                               arg_expert):
                     return True
 
         # Delete effect should not be after the add effect.
@@ -157,7 +183,10 @@ class Transition(AtomicActionPart):
         if (    not transition.__main_effect.negated
             and self._are_possibly_the_same(self.__effects[0],
                                             transition.__effects[0],
-                                            distinct_args)):
+                                            distinct_args,
+                                            action_name,
+                                            [],
+                                            arg_expert)):
             return True
 
         return False
@@ -250,11 +279,18 @@ class MicroAction:
 
     def is_threatened_by(self,
                          other: 'MicroAction',
-                         distinct_args: Dict[str, Set[str]]) -> bool:
+                         distinct_args: Dict[str, Set[str]],
+                         action_name: str,
+                         conditions: List[Literal],
+                         arg_expert: Optional[ArgExpert]) -> bool:
         if self == other:
             return False
         parts = self.__preconditions + self.__transitions
-        return any(part.is_threatened_by(other_transition, distinct_args)
+        return any(part.is_threatened_by(other_transition,
+                                         distinct_args,
+                                         action_name,
+                                         conditions,
+                                         arg_expert)
                    for other_transition in other.__transitions 
                    for part in parts)
 
@@ -274,7 +310,11 @@ class MicroAction:
         new_partial_state = set()
         for condition in partial_state:
             for transition in self.__transitions:
-                if condition.is_threatened_by(transition, distinct_args):
+                if condition.is_threatened_by(transition,
+                                              distinct_args,
+                                              "",
+                                              [],
+                                              None):
                     break
             else:
                 new_partial_state.add(condition)

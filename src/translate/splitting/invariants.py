@@ -19,22 +19,127 @@ N = 2  # Maximum size of disjunctive invariants; the name is got from the paper
 MAX_GROUND_SIZE = 10000
 
 
-def find_distinct_args(task: Task) -> Tuple[Task,
-                                            Dict[str, Dict[str, Set[str]]]]:
-    """Finds distinct arguments of actions
+class ArgExpert:
+    def __init__(self,
+                 distinct_args: Dict[str, Dict[str, Set[str]]],
+                 actions: List[Action],
+                 types: Dict[str, '__LimitedType'],
+                 invariants: List[List[Literal]]):
+            self.__distinct_args = distinct_args
+            self.__parameters = {a.name: {p.name: p.type_name
+                                          for p in a.parameters}
+                                 for a in actions}
+            self.__types = types
+            self.__context = Context()
+            for invariant in invariants:
+                self.__context.add_clause(invariant)
+            self.__context.add_scope()
+            # Memoizing if two literals are equivalent, given a set
+            # of conditions.
+            self.__memoized: Dict[Tuple(Tuple[str, ...], Tuple[Literal, ...]),
+                                  bool] = dict()
+
+    def are_distinct(self,
+                     action_name: str,
+                     literal1: Literal,
+                     literal2: Literal,
+                     conditions: List[Literal]):
+        if not conditions:
+            # Two literals are in effects, so we can use our general
+            # information: `self.__distinct_args`
+            distinct_args = self.__distinct_args[action_name]
+
+            # we assume the predicate names of two literal has already
+            # been checked.
+            for arg1, arg2 in zip(literal1.args, literal2.args):
+                if arg1 in distinct_args[arg2]:
+                    return True
+            return False
+
+        replacing_args: Dict[TypedObject, TypedObject] = {}
+        for arg1, arg2 in zip(literal1.args, literal2.args):
+            arg1 = replacing_args.setdefault(arg1, arg1)
+            arg2 = replacing_args.setdefault(arg2, arg2)
+            if not is_variable(arg1):
+                replacing_args[arg2] = arg1
+                continue
+            if not is_variable(arg2):
+                replacing_args[arg1] = arg2
+                continue
+            arg1_type = self.__parameters[action_name][arg1]
+            arg2_type = self.__parameters[action_name][arg2]
+            if self.__types[arg1_type].is_subtype(arg2_type):
+                replacing_args[arg2] = arg1
+            else:
+                replacing_args[arg1] = arg2
+
+        new_args, conditions = self.__normalize_conditions(
+            conditions, self.__parameters[action_name], replacing_args)
+        result = not self.__are_satisfiable(new_args, conditions)
+        return result
+
+    def __normalize_conditions(self,
+                              condition: List[Literal],
+                              arg_types: Dict[str, '__LimitedType'],
+                              replacing_args: Dict[str, str]):
+        new_args: List[TypedObject] = []
+        args_mapping: Dict[str, str] = dict()
+        for arg1, arg2 in replacing_args.items():
+            if arg2 not in args_mapping:
+                if is_variable(arg2):
+                    new_args.append(TypedObject(get_variable(len(new_args)),
+                                                arg_types[arg2]))
+                    args_mapping[arg2] = new_args[-1].name
+                else:
+                    args_mapping[arg2] = arg2
+            args_mapping[arg1] = args_mapping[arg2]
+        normalized_condition: List[Literal] = []
+        for literal in sorted(condition, key=str):
+            literal_args = []
+            for arg in literal.args:
+                if not is_variable(arg):
+                    literal_args.append(arg)
+                    continue
+                if arg not in args_mapping:
+                    new_args.append(TypedObject(get_variable(len(new_args)),
+                                                arg_types[arg]))
+                    args_mapping[arg] = new_args[-1].name
+                literal_args.append(args_mapping[arg])
+            new_literal = literal.__class__(literal.predicate, literal_args)
+            normalized_condition.append(new_literal)
+        return new_args, tuple(normalized_condition)
+
+    def __are_satisfiable(self,
+                          args: List[TypedObject],
+                          conditions: Tuple[Literal]):
+        key = (tuple(a.type_name for a in args), conditions)
+        if key in self.__memoized:
+            return self.__memoized[key]
+        action = Action("", args, len(args), Conjunction(conditions), [], 0)
+        ground_actions = generate_ground_action(action, self.__types)
+        if ground_actions is None:
+            # High number of ground actions
+            self.__memoized[key] = True
+            return True
+        for ground_action in ground_actions:
+            self.__context.add_scope()
+            for condition in get_conditions(ground_action.precondition):
+                self.__context.add_clause([condition])
+            is_sat = self.__context.is_satisfiable()
+            self.__context.drop_scope()
+            if is_sat:
+                self.__memoized[key] = True
+                return True
+        self.__memoized[key] = False
+        return False
+
+
+def construct_arg_expert(task: Task) -> ArgExpert:
+    """Construct an expert to analysis arguments
 
     Arguments of an action with the same type might not be possible to
     instantiate with the same value. This is a valuable information
-    might be helpful for splitting actions. This function find those
-    arguments for each action.
-    
-    The return value is a dictionary from action name to another
-    dictionary, which maps the arguments to the list their distinct
-    values.
-
-    For example, for an action with name 'a', if we know its argument
-    "?x" is distinct with the arguments "?y" and "?z", then we'll have:
-    `find_distinct_args(task)['a']['?x'] == {'?y', '?z'}`
+    might be helpful for splitting actions.
     """
     if not __is_domain_supported(task):
         return __get_non_restricting_args(task)
@@ -52,8 +157,7 @@ def find_distinct_args(task: Task) -> Tuple[Task,
     invariants = __find_invariants(init_invariants, grounded_actions)
     distinct_args = __find_distinct_args(task, invariants, grounded_actions)
     # completed_task = __complete_task(task, types, distinct_args)
-    completed_task = task
-    return completed_task, distinct_args
+    return ArgExpert(distinct_args, task.actions, limited_types, invariants)
 
 def __get_non_restricting_args(task: Task):
     return task, {a.name: {p.name: set() for p in a.parameters}
@@ -482,7 +586,7 @@ def __construct_limited_types(task: Task):
                                       objects_needed)
     return __get_all_limited_types(root_limited_type)
 
-def __ground_action(action: Action, types: Dict[str, __LimitedType]):
+def generate_ground_action(action: Action, types: Dict[str, __LimitedType]):
     def types_comparison(obj1: TypedObject, obj2: TypedObject):
         if types[obj1.type_name].is_subtype(obj2.type_name):
             return -1
@@ -538,7 +642,7 @@ def __limited_ground_actions(actions: List[Action],
                              types: Dict[str, __LimitedType]):
     grounded_actions: List[Action] = []
     for action in actions:
-        new_grounded_actions = __ground_action(action, types)
+        new_grounded_actions = generate_ground_action(action, types)
         if new_grounded_actions is None:
             return None
         grounded_actions.extend(new_grounded_actions)

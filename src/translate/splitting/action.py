@@ -1,4 +1,4 @@
-from typing import Iterable, List, Set
+from typing import Iterable, List, Set, Dict
 from itertools import combinations, permutations
 from functools import reduce
 
@@ -119,7 +119,8 @@ class Action:
         return transitions
 
     def __prepare_transitions(self,
-                              transitions: List[Transition]) -> List[MicroAction]:
+                              transitions: List[Transition]
+                             ) -> List[MicroAction]:
         """Prepares the transitions
 
         It is important to consider the possibility that a transition
@@ -134,7 +135,11 @@ class Action:
         # Constructing the ordered graph
         graph = {transition: [] for transition in transitions}
         for transition1, transition2 in permutations(transitions, 2):
-            if transition1.is_threatened_by(transition2, self.__distinct_args):
+            if transition1.is_threatened_by(transition2,
+                                            self.__distinct_args,
+                                            self.__name,
+                                            [],
+                                            self.__knowledge.arg_expert):
                 graph[transition1].append(transition2)
 
         components = get_sccs_adjacency_dict(graph)
@@ -203,6 +208,8 @@ class Action:
         distinct_args = self.__distinct_args
 
         print("Action:", self.__name)
+        action_name = self.__name
+        arg_expert = self.__knowledge.arg_expert
 
         class Candidate(AbstractNode):
             def __init__(self,
@@ -272,6 +279,9 @@ class Action:
 
             def __find_choices(self) -> List[MicroAction]:
                 determined = set().union(*[m.args for m in self.__micro_actions])
+                fixed_conditions = set().union(*(m.preconditions
+                                                 for m in self.__micro_actions))
+                fixed_conditions = [c.condition for c in fixed_conditions]
 
                 def are_relevant_vars(needed: set, all: set):
                     if not determined.issuperset(needed):
@@ -301,7 +311,11 @@ class Action:
                                                     t.args)]
                 transitions = [t
                                for t in transitions
-                               if not any(m.is_threatened_by(t, distinct_args)
+                               if not any(m.is_threatened_by(t,
+                                                             distinct_args,
+                                                             action_name,
+                                                             fixed_conditions,
+                                                             arg_expert)
                                           for m in (  self.__transitions
                                                     + self.__preconditions))]
 
@@ -410,10 +424,19 @@ class Action:
                 # Include all transitions having a subset of arguments which
                 # threat no remaining precondition or transition!
                 remaining_transitions = self.__transitions.copy()
+                fixed_conditions = set().union(*(m.preconditions
+                                               for m in (self.__micro_actions[:-1]
+                                                         + [new_micro_action])))
+                fixed_conditions = [c.condition for c in fixed_conditions]
+
                 def is_it_safe_to_include(transition: MicroAction):
                     if not new_micro_action.args.issuperset(transition.args):
                         return False
-                    if any(part.is_threatened_by(transition, distinct_args)
+                    if any(part.is_threatened_by(transition,
+                                                 distinct_args,
+                                                 action_name,
+                                                 fixed_conditions,
+                                                 arg_expert)
                            for part in (  remaining_preconditions
                                         + remaining_transitions)):
                         return False
@@ -547,7 +570,7 @@ class Action:
         return self.__knowledge.all_count_estimate(args, conditions)
 
     def __find_distinct_args(self, preconditions: List[Literal]):
-        distinct_args = self.__knowledge.get_distinct_args(self.__name)
+        distinct_args: Dict[str, Set[str]] = dict()
         def get_name(arg):
             return arg.name if isinstance(arg, TypedObject) else arg
         for precondition in preconditions:
