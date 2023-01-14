@@ -44,7 +44,7 @@ class ArgExpert:
                      literal1: Literal,
                      literal2: Literal,
                      conditions: List[Literal]):
-        if not conditions:
+        if conditions is None:
             # Two literals are in effects, so we can use our general
             # information: `self.__distinct_args`
             distinct_args = self.__distinct_args[action_name]

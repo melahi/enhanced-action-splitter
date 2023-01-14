@@ -36,7 +36,7 @@ class AtomicActionPart:
                                literal2: Literal,
                                distinct_args: Dict[str, Set[str]],
                                action_name: str,
-                               conditions: List[Literal],
+                               conditions: Optional[List[Literal]],
                                arg_expert: Optional[ArgExpert]) -> bool:
         if literal1.predicate != literal2.predicate:
             return False
@@ -92,7 +92,7 @@ class Condition(AtomicActionPart):
                                            effect,
                                            distinct_args,
                                            action_name,
-                                           conditions + [self.__condition],
+                                           conditions,
                                            arg_expert):
                 return True
         return False
@@ -169,7 +169,7 @@ class Transition(AtomicActionPart):
                                                condition,
                                                distinct_args,
                                                action_name,
-                                               existing_condition+[condition],
+                                               existing_condition,
                                                arg_expert):
                     return True
 
@@ -185,7 +185,7 @@ class Transition(AtomicActionPart):
                                             transition.__effects[0],
                                             distinct_args,
                                             action_name,
-                                            [],
+                                            None,
                                             arg_expert)):
             return True
 
