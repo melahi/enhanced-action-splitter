@@ -160,8 +160,10 @@ def construct_arg_expert(task: Task) -> ArgExpert:
     return ArgExpert(distinct_args, task.actions, limited_types, invariants)
 
 def __get_non_restricting_args(task: Task):
-    return task, {a.name: {p.name: set() for p in a.parameters}
-                  for a in task.actions}
+    class DummyArgExpert:
+        def are_distinct(*args):
+            return False
+    return DummyArgExpert()
 
 def __is_domain_supported(task: Task):
     for requirement in task.requirements.requirements:
