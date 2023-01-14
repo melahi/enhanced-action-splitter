@@ -343,15 +343,18 @@ class Action:
                 first_visit = {}
                 last_visit = {}
                 preconditions = set()
+                visited_new_preconditions = []
                 decisions = []
                 for i, micro_action in enumerate(self.__micro_actions):
                     new_variables = {v
                                      for v in micro_action.args
                                      if v not in first_visit}
+                    visited_new_preconditions.append(0)
                     for precondition in micro_action.preconditions:
                         if precondition in preconditions:
                             continue
                         preconditions.add(precondition)
+                        visited_new_preconditions[-1] += 1
                         for arg in precondition.find_args():
                             if not is_variable(arg):
                                 continue
@@ -375,10 +378,10 @@ class Action:
                         preconditional_micro_actions_count += 1
 
                 self.__cost = (len(self.__preconditions),
-                               # sum(decisions),
                                variables_spans,
+                               [-1 * p for p in visited_new_preconditions],
+                               # decisions,
                                # preconditional_micro_actions_count,
-                               decisions,
                                len(self.__micro_actions),
                                ground_estimate)
                 return self.__cost
