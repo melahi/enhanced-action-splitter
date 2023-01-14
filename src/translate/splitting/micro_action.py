@@ -92,7 +92,9 @@ class Condition(AtomicActionPart):
                                            effect,
                                            distinct_args,
                                            action_name,
-                                           conditions,
+                                             conditions
+                                           + transition.conditions
+                                           + [effect.negate()],
                                            arg_expert):
                 return True
         return False
@@ -154,6 +156,10 @@ class Transition(AtomicActionPart):
         return self.__effects.copy()
 
     @property
+    def conditions(self):
+        return self.__conditions.copy()
+
+    @property
     def has_condition(self):
         return len(self.__conditions) != 0
 
@@ -169,7 +175,9 @@ class Transition(AtomicActionPart):
                                                condition,
                                                distinct_args,
                                                action_name,
-                                               existing_condition,
+                                                 existing_condition
+                                               + transition.conditions
+                                               + [effect.negate()],
                                                arg_expert):
                     return True
 
