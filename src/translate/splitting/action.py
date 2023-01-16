@@ -379,8 +379,8 @@ class Action:
 
                 self.__cost = (len(self.__preconditions),
                                variables_spans,
+                               decisions,
                                [-1 * p for p in visited_new_preconditions],
-                               # decisions,
                                # preconditional_micro_actions_count,
                                len(self.__micro_actions),
                                ground_estimate)
@@ -388,25 +388,19 @@ class Action:
 
             def __get_child(self,
                             new_micro_action: MicroAction,
-                            size_threshold: int) -> 'Candidate':
+                            current_estimate: int) -> 'Candidate':
                 # Adding static precondition as much as possible
-                determined = set().union(*[m.args
-                                           for m in (self.__micro_actions[:-1]
-                                                     + [new_micro_action])])
-
                 level_off = False
                 while not level_off:
                     level_off = True
                     for static_condition in statics:
                         if static_condition in new_micro_action.preconditions:
                             continue
-                        if not static_condition.find_args().issubset(determined):
-                            continue
                         temp = new_micro_action.copy()
                         temp.add_precondition(static_condition)
                         estimate = count_estimate(temp)
-                        if estimate <= size_threshold:
-                            size_threshold = estimate
+                        if estimate <= current_estimate:
+                            current_estimate = estimate
                             new_micro_action = temp
                             # Imposing a new condition/constraint might limit
                             # the possibilities so we can add some other
@@ -446,7 +440,7 @@ class Action:
                     return True
                 level_off = False
                 while not level_off:
-                    for transition in remaining_transitions:
+                    for transition in remaining_transitions.copy():
                         if (set(transition.transitions)
                             .issubset(new_micro_action.transitions)):
                             remaining_transitions.remove(transition)
