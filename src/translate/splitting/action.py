@@ -168,9 +168,9 @@ class Action:
                     if is_variable(a)]
 
         memoized_estimate = {}
-        def count_estimate(micro_action: MicroAction) -> int:
-            key = (frozenset(micro_action.args),
-                   tuple(micro_action.preconditions))
+        def count_estimate(micro_action: MicroAction, args=None) -> int:
+            args = micro_action.args if args is None else args
+            key = (frozenset(args), tuple(micro_action.preconditions))
             if key not in memoized_estimate:
                 memoized_estimate[key] = self.__count_estimate(key[0], key[1])
             return memoized_estimate[key]
@@ -344,7 +344,7 @@ class Action:
                 last_visit = {}
                 preconditions = set()
                 visited_new_preconditions = []
-                decisions = []
+                branches = [1]
                 for i, micro_action in enumerate(self.__micro_actions):
                     new_variables = {v
                                      for v in micro_action.args
@@ -363,25 +363,26 @@ class Action:
                             last_visit[arg] = i
                         omittables = get_omittable_variables(precondition)
                         new_variables = new_variables.difference(omittables)
-                    decisions.append(len(new_variables))
+                    branches.append(branches[-1]
+                                    * count_estimate(micro_action,
+                                                     new_variables))
 
                 variables_spans = [last_visit[v] - first_visit[v]
                                    for v in first_visit.keys()
                                    if last_visit[v] - first_visit[v] > 0]
                 variables_spans.sort(reverse=True)
 
-                preconditional_micro_actions_count = 0
+                preconditional_micro_actions_count = len(
+                    tuple(filter(lambda x:x, visited_new_preconditions)))
                 ground_estimate = 0
                 for micro_action in self.__micro_actions:
                     ground_estimate += count_estimate(micro_action)
-                    if micro_action.has_precondition:
-                        preconditional_micro_actions_count += 1
 
                 self.__cost = (len(self.__preconditions),
+                               preconditional_micro_actions_count,
+                               branches,
                                variables_spans,
-                               decisions,
                                [-1 * p for p in visited_new_preconditions],
-                               # preconditional_micro_actions_count,
                                len(self.__micro_actions),
                                ground_estimate)
                 return self.__cost
