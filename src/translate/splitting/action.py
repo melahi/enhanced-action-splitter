@@ -380,9 +380,11 @@ class Action:
 
                 self.__cost = (len(self.__preconditions),
                                preconditional_micro_actions_count,
-                               branches,
+                               branches[-1],
+                               len(variables_spans),
                                variables_spans,
                                [-1 * p for p in visited_new_preconditions],
+                               branches,
                                len(self.__micro_actions),
                                ground_estimate)
                 return self.__cost
