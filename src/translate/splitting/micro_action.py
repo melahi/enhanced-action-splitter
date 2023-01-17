@@ -40,13 +40,13 @@ class AtomicActionPart:
                                arg_expert: Optional[ArgExpert]) -> bool:
         if literal1.predicate != literal2.predicate:
             return False
-        if literal1.args == literal2.args:
+        args1 = tuple(a.name if isinstance(a, TypedObject) else a
+                      for a in literal1.args)
+        args2 = tuple(a.name if isinstance(a, TypedObject) else a
+                      for a in literal2.args)
+        if args1 == args2:
             return True
-        for arg1, arg2 in zip(literal1.args, literal2.args):
-            if isinstance(arg1, TypedObject):
-                arg1 = arg1.name
-            if isinstance(arg2, TypedObject):
-                arg2 = arg2.name
+        for arg1, arg2 in zip(args1, args2):
             if arg2 in distinct_args.get(arg1, set()):
                 return False
             if arg1.startswith("?") or arg2.startswith("?"):
