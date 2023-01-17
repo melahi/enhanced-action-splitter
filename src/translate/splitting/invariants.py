@@ -141,7 +141,7 @@ def construct_arg_expert(task: Task) -> ArgExpert:
     instantiate with the same value. This is a valuable information
     might be helpful for splitting actions.
     """
-    if True or not __is_domain_supported(task):
+    if not __is_domain_supported(task):
         return __get_non_restricting_args(task)
     limited_types = __construct_limited_types(task)
     grounded_actions = __limited_ground_actions(task.actions, limited_types)
