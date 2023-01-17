@@ -309,7 +309,15 @@ def __get_constants(action: Action):
             | set().union(*(get_constants_in_effect(e)
                             for e in action.effects)))
 
-def __get_max_objects_needed_for_actions(actions: Iterable[Action]):
+def __get_max_objects_needed_for_actions(task: Task):
+    actions = task.actions
+    objects = task.objects
+    def get_type(symbol):
+        if isinstance(symbol, TypedObject):
+            return symbol.type_name
+        for obj in objects:
+            if obj.name == symbol:
+                return obj.type_name
     max_objects_for_actions = dict()
     constants = set()
     for action in actions:
@@ -318,7 +326,7 @@ def __get_max_objects_needed_for_actions(actions: Iterable[Action]):
         constants_in_action = {c.name if isinstance(c, TypedObject) else c
                                for c in constants_in_action}
         for symbol in constants_in_action.union(action.parameters):
-            counter[symbol.type_name] = counter.get(symbol.type_name, 0) + 1
+            counter[get_type(symbol)] = counter.get(get_type(symbol), 0) + 1
         for type_name, count in counter.items():
             max_objects_for_actions[type_name] =\
                 max(max_objects_for_actions.get(type_name, 0), count)
@@ -340,7 +348,7 @@ def __get_max_objects_needed_for_predicates(predicates: Iterable[Predicate]):
 
 def __get_max_objects_needed(task: Task):
     for_predicates = __get_max_objects_needed_for_predicates(task.predicates)
-    for_actions, constants = __get_max_objects_needed_for_actions(task.actions)
+    for_actions, constants = __get_max_objects_needed_for_actions(task)
     constants = [obj for obj in task.objects if obj.name in constants]
     for t in task.types:
         for_predicates.setdefault(t.name, 0)
