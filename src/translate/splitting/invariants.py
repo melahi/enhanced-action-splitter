@@ -17,6 +17,7 @@ from .sat_solver import Context
 
 N = 2  # Maximum size of disjunctive invariants; the name is got from the paper
 MAX_GROUND_SIZE = 10000
+MAX_INVARIANT_SCHEMA_SIZE = 10000
 
 
 class ArgExpert:
@@ -448,6 +449,12 @@ class __SchematicInvariant:
                 weakened_invariants.append(invariant)
         return weakened_invariants
 
+    def instantiate_size(self, types: Dict[str, '__AbstractType']):
+        args = {a.name: types[a.type_name]
+                for l in self.__disjunction
+                for a in l.args}
+        return reduce(lambda x, y: x * y._domain_size(), args.values(), 1)
+
     def instantiate(self, types: Dict[str, '__AbstractType']):
         args = {a.name: types[a.type_name]
                 for l in self.__disjunction
@@ -467,6 +474,8 @@ def __find_schematic_invariants_in_initial_state(initial_state: Set[Atom],
                                                  predicates: List[Predicate],
                                                  types: Dict[str, __Type]):
     def is_valid(invariant: __SchematicInvariant):
+        if invariant.instantiate_size(types) > MAX_INVARIANT_SCHEMA_SIZE:
+            return False
         for ground_invariant in invariant.instantiate(types):
             for literal in ground_invariant:
                 if isinstance(literal, Atom):
