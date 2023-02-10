@@ -215,12 +215,16 @@ class Action:
             def __init__(self,
                          micro_actions: List[MicroAction],
                          preconditions: List[MicroAction],
-                         transitions: List[MicroAction]):
+                         transitions: List[MicroAction],
+                         fixed_ground_size: int  # The ground size of
+                                                 # `micro_actions[:-1]`
+                        ):
                 # NOTE: `micro_actions[:-1]` are fixed; we can/should only
                 #        modify the `micro_actions[-1]`.
                 self.__micro_actions = micro_actions  #chained micro-actions
                 self.__preconditions = preconditions  # remaining preconditions
                 self.__transitions = transitions  # remaining transitions
+                self.__fixed_ground_size = fixed_ground_size
                 self.__key = tuple((frozenset(m.preconditions),
                                     frozenset(m.transitions))
                                    for m in micro_actions)
@@ -251,13 +255,15 @@ class Action:
                     return []
 
                 last = self.__micro_actions[-1]
-                max_size = max(count_estimate(last), size_threshold)
+                current_size = self.__fixed_ground_size + count_estimate(last)
+                max_size = max(current_size, size_threshold)
                 candidates = []
                 for choice in self.__find_choices():
                     new_micro_action = last.copy()
                     new_micro_action.merge(choice)
                     estimate = count_estimate(new_micro_action)
-                    if last.args and estimate > max_size:
+                    if (    last.args
+                        and self.__fixed_ground_size + estimate > max_size):
                         continue
                     candidates.append(self.__get_child(new_micro_action,
                                                        estimate))
@@ -265,7 +271,8 @@ class Action:
                     candidates.append(Candidate(  self.__micro_actions
                                                 + [MicroAction()],
                                                 self.__preconditions,
-                                                self.__transitions))
+                                                self.__transitions,
+                                                current_size))
                 return candidates
 
             def should_be_pruned(self, other: 'Candidate') -> bool:
@@ -374,12 +381,12 @@ class Action:
 
                 preconditional_micro_actions_count = len(
                     tuple(filter(lambda x:x, visited_new_preconditions)))
-                ground_estimate = 0
-                for micro_action in self.__micro_actions:
-                    ground_estimate += count_estimate(micro_action)
+                ground_estimate = (  self.__fixed_ground_size
+                                   + count_estimate(self.__micro_actions[-1]))
 
                 self.__cost = (len(self.__preconditions),
                                # preconditional_micro_actions_count,
+                               max(0, ground_estimate - size_threshold),
                                len(self.__micro_actions),
                                variables_spans,
                                branches,
@@ -459,9 +466,10 @@ class Action:
                 micro_actions = self.__micro_actions[:-1] + [new_micro_action]
                 return Candidate(micro_actions,
                                  remaining_preconditions,
-                                 remaining_transitions)
+                                 remaining_transitions,
+                                 self.__fixed_ground_size)
 
-        initial = Candidate([MicroAction()], preconditions, transitions)
+        initial = Candidate([MicroAction()], preconditions, transitions, 0)
         best = random_walk(initial, self.__random_walk_timeout)
         print(self.__name, "best candidate cost:", best.cost)
         return best.ordered_micro_actions()
