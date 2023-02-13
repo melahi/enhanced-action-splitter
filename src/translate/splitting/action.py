@@ -515,10 +515,12 @@ class Action:
         1. static conditions overlapped with transition's
            arguments which doesn't increase the number of its
            ground instances, 
-        2. conditions with the arguments which are the subset
-           of the transition's arguments.
+        2. positive conditions with the arguments which are the
+           subset of the transition's arguments.
         """
         def complete(conditions: Set[Condition], micro_action: MicroAction):
+            # Throw away negative conditions
+            conditions = filter(lambda c: not c.condition.negated, conditions)
             # Sort conditions to make our method deterministic (reproducible)
             conditions = sorted(conditions, key=lambda c: c.to_string(""))
             level_off = False
