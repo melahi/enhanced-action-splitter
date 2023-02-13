@@ -16,10 +16,7 @@ class AtomicActionPart:
 
     def is_threatened_by(self,
                          transition: 'Transition',
-                         distinct_args: Dict[str, Set[str]],
-                         action_name: str,
-                         conditions: List[Literal],
-                         arg_expert: Optional[ArgExpert]) -> bool:
+                         distinct_args: Dict[str, Set[str]]) -> bool:
         raise NotImplementedError
 
     def to_string(self, indent) -> str:
@@ -34,10 +31,7 @@ class AtomicActionPart:
     @staticmethod
     def _are_possibly_the_same(literal1: Literal,
                                literal2: Literal,
-                               distinct_args: Dict[str, Set[str]],
-                               action_name: str,
-                               conditions: Optional[List[Literal]],
-                               arg_expert: Optional[ArgExpert]) -> bool:
+                               distinct_args: Dict[str, Set[str]]) -> bool:
         if literal1.predicate != literal2.predicate:
             return False
         args1 = tuple(a.name if isinstance(a, TypedObject) else a
@@ -53,11 +47,6 @@ class AtomicActionPart:
                 continue
             if arg1 != arg2:
                 return False
-        if arg_expert is not None and arg_expert.are_distinct(action_name,
-                                                              literal1,
-                                                              literal2,
-                                                              conditions):
-            return False
         return True
 
 
@@ -83,19 +72,11 @@ class Condition(AtomicActionPart):
 
     def is_threatened_by(self,
                          transition: 'Transition',
-                         distinct_args: Dict[str, Set[str]],
-                         action_name: str,
-                         conditions: List[Literal],
-                         arg_expert: Optional[ArgExpert]) -> bool:
+                         distinct_args: Dict[str, Set[str]]) -> bool:
         for effect in transition.effects:
             if self._are_possibly_the_same(self.__condition,
                                            effect,
-                                           distinct_args,
-                                           action_name,
-                                             conditions
-                                           + transition.conditions
-                                           + [effect.negate()],
-                                           arg_expert):
+                                           distinct_args):
                 return True
         return False
 
@@ -165,20 +146,14 @@ class Transition(AtomicActionPart):
 
     def is_threatened_by(self,
                          transition: 'Transition',
-                         distinct_args: Dict[str, Set[str]],
-                         action_name: str,
-                         existing_condition: List[Literal],
-                         arg_expert: Optional[ArgExpert]) -> bool:
+                         distinct_args: Dict[str, Set[str]]) -> bool:
+        if self == transition:
+            return False
         for effect in transition.effects:
             for condition in self.__conditions:
                 if self._are_possibly_the_same(effect,
                                                condition,
-                                               distinct_args,
-                                               action_name,
-                                                 existing_condition
-                                               + transition.conditions
-                                               + [effect.negate()],
-                                               arg_expert):
+                                               distinct_args):
                     return True
 
         # Delete effect should not be after the add effect.
@@ -191,10 +166,7 @@ class Transition(AtomicActionPart):
         if (    not transition.__main_effect.negated
             and self._are_possibly_the_same(self.__effects[0],
                                             transition.__effects[0],
-                                            distinct_args,
-                                            action_name,
-                                            None,
-                                            arg_expert)):
+                                            distinct_args)):
             return True
 
         return False
@@ -287,18 +259,12 @@ class MicroAction:
 
     def is_threatened_by(self,
                          other: 'MicroAction',
-                         distinct_args: Dict[str, Set[str]],
-                         action_name: str,
-                         conditions: List[Literal],
-                         arg_expert: Optional[ArgExpert]) -> bool:
+                         distinct_args: Dict[str, Set[str]]) -> bool:
         if self == other:
             return False
         parts = self.__preconditions + self.__transitions
         return any(part.is_threatened_by(other_transition,
-                                         distinct_args,
-                                         action_name,
-                                         conditions,
-                                         arg_expert)
+                                         distinct_args)
                    for other_transition in other.__transitions 
                    for part in parts)
 
@@ -319,10 +285,7 @@ class MicroAction:
         for condition in partial_state:
             for transition in self.__transitions:
                 if condition.is_threatened_by(transition,
-                                              distinct_args,
-                                              "",
-                                              [],
-                                              None):
+                                              distinct_args):
                     break
             else:
                 new_partial_state.add(condition)
