@@ -384,12 +384,11 @@ class Action:
                 last_visit = {}
                 preconditions = set()
                 visited_new_preconditions = []
-                # branches = [1]
-                element_cost = []
+                branches = [1]
                 for i, micro_action in enumerate(self.__micro_actions):
-                    # new_variables = {v
-                    #                  for v in micro_action.args
-                    #                  if v not in first_visit}
+                    new_variables = {v
+                                     for v in micro_action.args
+                                     if v not in first_visit}
                     visited_new_preconditions.append(0)
                     for precondition in micro_action.preconditions:
                         if precondition in preconditions:
@@ -403,27 +402,29 @@ class Action:
                                 first_visit[arg] = i
                             last_visit[arg] = i
                         omittables = get_omittable_variables(precondition)
-                    #     new_variables = new_variables - omittables
-                    # branches.append(branches[-1]
-                    #                 * count_estimate(micro_action,
-                    #                                  new_variables))
+                        omittables = omittables & new_variables
+                        if omittables:
+                            new_variables.discard(list(omittables)[0])
+                    branches.append(branches[-1]
+                                    * count_estimate(micro_action,
+                                                     new_variables))
 
                 variables_spans = [last_visit[v] - first_visit[v]
                                    for v in first_visit.keys()
                                    if last_visit[v] - first_visit[v] > 0]
                 variables_spans.sort(reverse=True)
 
-                # preconditional_micro_actions_count = len(
-                #     tuple(filter(lambda x:x, visited_new_preconditions)))
+                preconditional_micro_actions_count = len(
+                    tuple(filter(lambda x:x, visited_new_preconditions)))
                 ground_estimate = (  self.__fixed_ground_size
                                    + count_estimate(self.__micro_actions[-1]))
                 self.__cost = (len(self.__preconditions),
-                               # preconditional_micro_actions_count,
                                max(0, ground_estimate - size_threshold),
-                               variables_spans,
-                               [-1 * p for p in visited_new_preconditions],
                                len(self.__micro_actions),
-                            #    branches,
+                            #   preconditional_micro_actions_count,
+                               branches,
+                            #    [-1 * p for p in visited_new_preconditions],
+                            #    variables_spans,
                             #    branches[-1],
                             #    [1 * b for b in branches],
                             #    len(self.__micro_actions),
