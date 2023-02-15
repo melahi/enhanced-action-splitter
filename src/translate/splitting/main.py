@@ -20,7 +20,7 @@ from .task_to_string import output
 from .plan_merger import main as plan_merger
 
 
-SIZE_THRESHOLD = 10000
+SIZE_THRESHOLD = 20000
 RANDOM_WALKS_TIMEOUT = 200
 print("SIZE THRESHOLD:", SIZE_THRESHOLD)
 print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)

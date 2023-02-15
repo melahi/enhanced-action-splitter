@@ -103,19 +103,19 @@ class Action:
             else:
                 raise ValueError("Expected only literals as effect!")
         for conditions, effect in del_effects:
-            variables = self.__knowledge.get_variables(effect)
-            covered_variables = set()
-            for transition in transitions:
-                (covered_variables
-                 .update(transition
-                         .check_delete_effect(variables, conditions, effect)))
-            if covered_variables != variables:
-                # Not all variables are covered by the current transitions;
-                # it might be the case when we have state variables that just
-                # falsify their values. Other probability might be that the
-                # logical consequence implementation might not be precise.
-                # In any case we fix it by adding a (probably redundant)
-                # transition.
+            # variables = self.__knowledge.get_variables(effect)
+            # covered_variables = set()
+            # for transition in transitions:
+            #     (covered_variables
+            #      .update(transition
+            #              .check_delete_effect(variables, conditions, effect)))
+            # if covered_variables != variables:
+            #     # Not all variables are covered by the current transitions;
+            #     # it might be the case when we have state variables that just
+            #     # falsify their values. Other probability might be that the
+            #     # logical consequence implementation might not be precise.
+            #     # In any case we fix it by adding a (probably redundant)
+            #     # transition.
                 transitions.append(Transition(conditions, effect, set()))
         return transitions
 
@@ -420,14 +420,15 @@ class Action:
                                    + count_estimate(self.__micro_actions[-1]))
                 self.__cost = (len(self.__preconditions),
                                max(0, ground_estimate - size_threshold),
-                               len(self.__micro_actions),
-                            #   preconditional_micro_actions_count,
-                               branches,
-                            #    [-1 * p for p in visited_new_preconditions],
-                            #    variables_spans,
-                            #    branches[-1],
-                            #    [1 * b for b in branches],
                             #    len(self.__micro_actions),
+                            #   preconditional_micro_actions_count,
+                               variables_spans,
+                               [-1 * p for p in visited_new_preconditions],
+                            #    [-1 * b for b in branches],
+                            #    branches,
+                            #    branches[-1],
+                            #    len(self.__micro_actions),
+                               len(self.__micro_actions),
                                ground_estimate)
                 return self.__cost
 
