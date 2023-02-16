@@ -202,9 +202,6 @@ class Action:
         positive_vars = set().union(*(p.find_args()
                                       for p in positive_preconditions))
 
-        # keep `distinct_args` for later usage
-        distinct_args = self.__distinct_args
-
         # Create dependency graph
         def is_helping(subject: MicroAction, object: MicroAction):
             assert len(subject.preconditions) == 1,\
@@ -215,9 +212,11 @@ class Action:
             assert len(object.preconditions) == 1,\
                 "`object` should be a precondition"
             subject_determinable = get_omittable_variables(subject)
-            object_needed = (  object.args
-                             - get_omittable_variables(object
-                                                       .preconditions[0]))
+            object_determinable = get_omittable_variables(object
+                                                          .preconditions[0])
+            if object_determinable - subject_determinable:
+                object_determinable -= subject_determinable
+            object_needed = object.args - object_determinable
             return not object_needed.isdisjoint(subject_determinable)
 
         # def determination_dependency(precondition: MicroAction,
@@ -427,7 +426,6 @@ class Action:
                             #    [-1 * b for b in branches],
                             #    branches,
                             #    branches[-1],
-                            #    len(self.__micro_actions),
                                len(self.__micro_actions),
                                ground_estimate)
                 return self.__cost
