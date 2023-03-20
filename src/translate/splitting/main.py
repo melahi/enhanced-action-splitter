@@ -22,8 +22,6 @@ from .plan_merger import main as plan_merger
 
 SIZE_THRESHOLD = 200000
 RANDOM_WALKS_TIMEOUT = 200
-print("SIZE THRESHOLD:", SIZE_THRESHOLD)
-print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)
 
 
 def split():
@@ -49,6 +47,9 @@ def merge_plan():
 
 
 def main():
+    print("SIZE THRESHOLD:", SIZE_THRESHOLD)
+    print("RANDOM WALKS TIMEOUT:", RANDOM_WALKS_TIMEOUT)
+
     if len(arguments) == 2:
         split()
     elif len(arguments) == 5:
