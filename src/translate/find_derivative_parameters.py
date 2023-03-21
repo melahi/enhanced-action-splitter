@@ -12,15 +12,16 @@ def main():
     classical_domains_dir = "/home/sadra/classical-domains/classical/"
     sys.path.append(classical_domains_dir)
     for domain_name in os.listdir(classical_domains_dir):
-        print("--------------------------------------------------")
-        print("Domain:", domain_name)
-        print()
         api = __import__(domain_name, globals(), locals(), ['api']).api
         if not api.domains:
             continue
         domain = api.domains[0]
         if not domain["problems"]:
             continue
+
+        print("Domain:", domain_name)
+        print()
+
         domain_path, problem_path = domain["problems"][-1]
         domain_path = os.path.join(classical_domains_dir, domain_path)
         problem_path = os.path.join(classical_domains_dir, problem_path)

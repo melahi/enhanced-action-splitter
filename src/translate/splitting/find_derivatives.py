@@ -19,6 +19,7 @@ def to_my_predicate(predicate: Literal) -> Predicate:
 
 def find_derivatives(domain: str, problem: str):
     task = pddl_parser.open(domain, problem)
+    not_found_anything = True
     with timers.timing("Extract knowledge", block=True):
         knowledge = Knowledge(task)
     for action in task.actions:
@@ -30,10 +31,14 @@ def find_derivatives(domain: str, problem: str):
             for omittable in knowledge.omittable_arguments(my_predicate):
                 if not_founded:
                     not_founded = False
+                    not_found_anything = False
                     print("Action:", action.name)
                 condition_str = literal_to_string(condition)
                 print("    {:<25}\tomittable => {}".format(omittable,
                                                            condition_str))
+
+    if not_found_anything:
+        print("Not found anything for this domain!")
 
 
 if __name__ == "__main__":
