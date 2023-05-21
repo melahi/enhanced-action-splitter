@@ -60,6 +60,8 @@ class PlanManager:
             return self._portfolio_bound
 
     def abort_portfolio_after_first_plan(self):
+        print ("Anytime feature is disabled!")
+        return True
         return self._single_plan
 
     def get_problem_type(self):

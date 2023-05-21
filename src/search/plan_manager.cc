@@ -68,4 +68,6 @@ void PlanManager::save_plan(
     utils::g_log << "Plan length: " << plan.size() << " step(s)." << endl;
     utils::g_log << "Plan cost: " << plan_cost << endl;
     ++num_previously_generated_plans;
+    cout << "Anytime feature is disabled! Terminating the planner ..." << endl;
+    exit(0);
 }
