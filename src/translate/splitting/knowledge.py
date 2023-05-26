@@ -382,13 +382,7 @@ class Knowledge:
 
     @staticmethod
     def __join_result_count(relations: List[pd.DataFrame],
-                            variables: List[str]) -> Tuple[Dict, int]:
-        # The dictionary in the return value maps arguments (columns'
-        # names) to the number of their possible instantiations in this
-        # join.
-        # The second element of the return value, with the type of int,
-        # specifies the number of records after joining the relations.
-
+                            variables: List[str]) -> int:
         # TODO: Use memoization to optimize this function
         def are_mergeable(relation1, relation2):
             return not set(relation1.columns).isdisjoint(relation2.columns)

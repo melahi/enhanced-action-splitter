@@ -11,7 +11,7 @@ class AtomicActionPart:
     def __str__(self):
         return self.to_string(indent="")
 
-    def find_args(self):
+    def find_args(self) -> Set[str]:
         raise NotImplementedError
 
     def is_threatened_by(self,
@@ -23,7 +23,7 @@ class AtomicActionPart:
         raise NotImplementedError
 
     @staticmethod
-    def _find_args_in_literal(literal: Literal):
+    def _find_args_in_literal(literal: Literal) -> Set[str]:
         args = [a.name if isinstance(a, TypedObject) else a
                 for a in literal.args]
         return {a for a in args if a.startswith("?")}
@@ -65,7 +65,7 @@ class Condition(AtomicActionPart):
     def condition(self):
         return self.__condition
 
-    def find_args(self):
+    def find_args(self) -> Set[str]:
         if isinstance(self.__condition, Literal):
             return self._find_args_in_literal(self.__condition)
         raise NotImplementedError("Other Conditions are not supported!")
@@ -125,7 +125,7 @@ class Transition(AtomicActionPart):
 
         return set()
 
-    def find_args(self):
+    def find_args(self) -> Set[str]:
         args = set().union(*[self._find_args_in_literal(condition)
                              for condition in self.__conditions])
         args = args.union(*[self._find_args_in_literal(effect)

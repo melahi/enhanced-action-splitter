@@ -267,6 +267,14 @@ class Action:
                                    for m in micro_actions)
                 self.__cost = None
 
+            def __str__(self):
+                pre = []
+                for m in self.__micro_actions:
+                    pre.append(''.join(sorted([p.to_string("   ")
+                                               for p in m.preconditions])))
+                return (  "---------------\n" + '++++++++++\n'.join(pre)
+                        + f"\n====== {self.cost} =======\n")
+
             def __hash__(self) -> int:
                 return hash(self.__key)
 
@@ -381,40 +389,47 @@ class Action:
                 # Finding spans of variables
                 first_visit = {}
                 last_visit = {}
-                preconditions = set()
                 visited_new_preconditions = []
-                branches = [1]
+                branches = []
+                omittables = []
+                temp_micro_action = MicroAction()
                 for i, micro_action in enumerate(self.__micro_actions):
-                    new_variables = {v
-                                     for v in micro_action.args
-                                     if v not in first_visit}
                     visited_new_preconditions.append(0)
                     for precondition in micro_action.preconditions:
-                        if precondition in preconditions:
+                        if precondition in temp_micro_action.preconditions:
                             continue
-                        preconditions.add(precondition)
+                        temp_micro_action.add_precondition(precondition)
                         visited_new_preconditions[-1] += 1
                         for arg in precondition.find_args():
-                            if not is_variable(arg):
-                                continue
                             if arg not in first_visit:
                                 first_visit[arg] = i
                             last_visit[arg] = i
-                        omittables = get_omittable_variables(precondition)
-                        omittables = omittables & new_variables
-                        if omittables:
-                            new_variables.discard(list(omittables)[0])
-                    branches.append(branches[-1]
-                                    * count_estimate(micro_action,
-                                                     new_variables))
+                        if precondition not in statics:
+                            choices = get_omittable_variables(precondition)
+                            if choices:
+                                omittables.append(choices)
+                    for transition in micro_action.transitions:
+                        temp_micro_action.add_transition(transition)
+                    best_branches = float('inf')
+                    for omittable in product(*omittables):
+                        free_variables = temp_micro_action.args - set(omittable)
+                        temp = count_estimate(temp_micro_action, free_variables)
+                        best_branches = min(best_branches, temp)
+                    branches.append(best_branches)
+
+                if len(self.__preconditions):
+                    # It might be possible that some remaining precondition
+                    # reduce the `branches`.
+                    branches.pop()
+                    visited_new_preconditions.pop()
 
                 variables_spans = [last_visit[v] - first_visit[v]
                                    for v in first_visit.keys()
                                    if last_visit[v] - first_visit[v] > 0]
                 variables_spans.sort(reverse=True)
 
-                preconditional_micro_actions_count = len(
-                    tuple(filter(lambda x:x, visited_new_preconditions)))
+                # preconditional_micro_actions_count = len(
+                #     tuple(filter(lambda x:x, visited_new_preconditions)))
                 ground_estimate = (  self.__fixed_ground_size
                                    + count_estimate(self.__micro_actions[-1]))
                 self.__cost = (len(self.__preconditions),
@@ -424,7 +439,7 @@ class Action:
                                variables_spans,
                                [-1 * p for p in visited_new_preconditions],
                             #    [-1 * b for b in branches],
-                            #    branches,
+                               branches,
                             #    branches[-1],
                                len(self.__micro_actions),
                                ground_estimate)
