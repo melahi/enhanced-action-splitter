@@ -10,7 +10,7 @@ from .graph import Graph
 from .knowledge import Knowledge
 
 
-class Candidate(AbstractNode):
+class Node(AbstractNode):
     size_threshold: int
     action_args: Set[str]
     statics: List[Condition]
@@ -148,10 +148,10 @@ class Candidate(AbstractNode):
     def __hash__(self) -> int:
         return hash(self.__key)
 
-    def __eq__(self, __o: 'Candidate') -> bool:
+    def __eq__(self, __o: 'Node') -> bool:
         return self.__key == __o.__key
 
-    def __lt__(self, __o: 'Candidate') -> bool:
+    def __lt__(self, __o: 'Node') -> bool:
         return self.__calculate_cost() < __o.__calculate_cost()
 
     @property
@@ -164,7 +164,7 @@ class Candidate(AbstractNode):
                 "transition"
         return self.__micro_actions.copy()
 
-    def neighbors(self) -> List['Candidate']:
+    def neighbors(self) -> List['Node']:
         if not self.__preconditions and not self.__transitions:
             # It is a terminal node
             return []
@@ -172,7 +172,7 @@ class Candidate(AbstractNode):
         last = self.__micro_actions[-1]
         current_size = self.__fixed_ground_size + self.count_estimate(last)
         max_size = max(current_size, self.size_threshold)
-        candidates = []
+        nodes = []
         for choice in self.__find_choices():
             new_micro_action = last.copy()
             new_micro_action.merge(choice)
@@ -180,20 +180,20 @@ class Candidate(AbstractNode):
             if (    last.args
                 and self.__fixed_ground_size + estimate > max_size):
                 continue
-            candidates.append(self.__get_child(new_micro_action,
+            nodes.append(self.__get_child(new_micro_action,
                                                 estimate))
         if last.args:
-            candidates.append(Candidate(  self.__micro_actions
+            nodes.append(Node(  self.__micro_actions
                                         + [MicroAction()],
                                         self.__preconditions,
                                         self.__transitions,
                                         current_size))
-        return candidates
+        return nodes
 
-    def should_be_pruned(self, other: 'Candidate') -> bool:
+    def should_be_pruned(self, other: 'Node') -> bool:
         other_cost = other.cost
         if other_cost[0] != 0:
-            # we assumed `other` candidate is completed. This
+            # we assumed `other` node is completed. This
             # condition is not complete, because we cannot check
             # the remaining number of `other`s transitions.
             return False
@@ -319,7 +319,7 @@ class Candidate(AbstractNode):
 
     def __get_child(self,
                     new_micro_action: MicroAction,
-                    current_estimate: int) -> 'Candidate':
+                    current_estimate: int) -> 'Node':
         # Adding static precondition as much as possible
         level_off = False
         while not level_off:
@@ -380,7 +380,7 @@ class Candidate(AbstractNode):
                 level_off = True
 
         micro_actions = self.__micro_actions[:-1] + [new_micro_action]
-        return Candidate(micro_actions,
+        return Node(micro_actions,
                             remaining_preconditions,
                             remaining_transitions,
                             self.__fixed_ground_size)

@@ -10,7 +10,7 @@ from pddl import Literal, TypedObject
 from .common import get_conditions
 from .knowledge import Knowledge
 from .micro_action import Condition, Transition, MicroAction
-from .candidate import Candidate
+from .node import Node
 from .random_walk import random_walk
 
 
@@ -153,15 +153,15 @@ class Action:
                               transitions: List[MicroAction],
                               size_threshold: int):
         print("Action:", self.__name)
-        Candidate.prepare_class_variables(preconditions=preconditions,
+        Node.prepare_class_variables(preconditions=preconditions,
                                           transitions=transitions,
                                           size_threshold=size_threshold,
                                           knowledge=self.__knowledge,
                                           action_args=self.__args,
                                           distinct_args=self.__distinct_args)
-        initial = Candidate([MicroAction()], preconditions, transitions, 0)
+        initial = Node([MicroAction()], preconditions, transitions, 0)
         best = random_walk(initial, self.__random_walk_timeout)
-        print(self.__name, "best candidate cost:", best.cost)
+        print(self.__name, "best node cost:", best.cost)
         return best.ordered_micro_actions()
 
     def __complete_micro_actions(self,
