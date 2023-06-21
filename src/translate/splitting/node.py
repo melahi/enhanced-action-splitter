@@ -53,7 +53,16 @@ class Node(AbstractNode):
                                                 Atom)]
         cls.positive_vars = set().union(*(p.find_args()
                                           for p in positive_preconditions))
+        cls.dependency_graph = cls.create_dependency_graph(preconditions,
+                                                           transitions,
+                                                           distinct_args)
+        return cls
 
+    @classmethod
+    def create_dependency_graph(cls, 
+                                preconditions: List[MicroAction],
+                                transitions: List[MicroAction],
+                                distinct_args: Dict[str, Set[str]]):
         # Create dependency graph
         # dependency graph demonstrates dependencies among variables
         # and preconditions. We say a variable depends on a preconditions,
@@ -101,8 +110,7 @@ class Node(AbstractNode):
                                                      + transitions,
                                                      transitions)),
                                   dependency_graph)
-        cls.dependency_graph = dependency_graph
-        return cls
+        return dependency_graph
 
     @classmethod
     def count_estimate(cls, micro_action: MicroAction, args=None) -> int:

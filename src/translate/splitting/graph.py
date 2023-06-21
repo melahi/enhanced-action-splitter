@@ -1,5 +1,5 @@
 import copy
-from typing import List, Tuple, Dict, Generic, TypeVar
+from typing import List, Tuple, Set, Dict, Generic, TypeVar
 
 
 Vertex = TypeVar('Vertex')
@@ -45,7 +45,7 @@ class Graph(Generic[Vertex]):
 
     def make_acyclic(self, vertex_priority=None):
         order = {v: i
-                 for i,v in enumerate(self.topological_order(vertex_priority))}
+                 for i, v in enumerate(self.topological_order(vertex_priority))}
         for vertex in self.__graph.keys():
             self.__graph[vertex] = {neighbor
                                     for neighbor in self.__graph[vertex]
@@ -53,12 +53,67 @@ class Graph(Generic[Vertex]):
         return self
 
     def topological_order(self, vertex_priority=None) -> List[Vertex]:
+        # NOTE: The graph is assumed to be a "DEPENDENCY" graph!
+
+        # `vertex_priority`: is a function from `Vertex` to a totally ordered
+        #                    value. It will be used as the `key` input for
+        #                    `list.sort()`.
+        if vertex_priority is None:
+            return self.__topological_order()
+        # return self.__topological_order_old(vertex_priority)
+        return self.__topological_order_precise(vertex_priority)
+
+    def __topological_order(self) -> List[Vertex]:
         def dfs(vertex, visited, order):
             stack = [(False, vertex)]
             while stack:
                 completed, vertex = stack.pop()
                 if completed:
-                    order = [vertex] + order
+                    # NOTE: The graph is assumed to be a "DEPENDENCY" graph,
+                    #       otherwise, we should use the following line instead.
+                    # order = [vertex] + order
+                    order.append(vertex)
+                    continue
+                if vertex in visited:
+                    continue
+                visited.append(vertex)
+                neighbors = list(self.__graph[vertex])
+                stack.append((True, vertex))
+                stack.extend([(False, n) for n in neighbors])
+            return visited, order
+        
+        visited = []
+        order = []
+        for vertex in self.__graph:
+            if vertex not in order:
+                visited, order = dfs(vertex, visited, order)
+        return order
+
+    def __topological_order_precise(self, vertex_priority):
+        # This is a more accurate version of topological order. The old
+        # version, `__topological_order_old`, might be faster.
+        ordered = []
+        vertices = sorted(self.__graph, key=vertex_priority, reverse=True)
+        while vertices:
+            for i, vertex in enumerate(vertices):
+                for dependency in self.__graph[vertex]:
+                    if dependency not in ordered:
+                        break
+                else:
+                    ordered.append(vertices.pop(i))
+                    break
+        return ordered
+
+    def __topological_order_old(self, vertex_priority):
+        def dfs(vertex, visited, order):
+            stack = [(False, vertex)]
+            while stack:
+                completed, vertex = stack.pop()
+                if completed:
+                    # NOTE: The graph is assumed to be a "DEPENDENCY" graph,
+                    #       otherwise, we should use the following line instead.
+                    # order = [vertex] + order
+                    order.append(vertex)
                     continue
                 if vertex in visited:
                     continue

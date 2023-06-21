@@ -11,7 +11,9 @@ from .common import get_conditions
 from .knowledge import Knowledge
 from .micro_action import Condition, Transition, MicroAction
 from .node import Node
+from .areces_node import ArecesNode
 from .random_walk import random_walk
+from .beam_search import beam_search
 
 
 # BEAM_SEARCH_WIDTH = 400
@@ -66,14 +68,16 @@ class Action:
                          for i, m in enumerate(self.__micro_actions))
 
     def __split_action(self, action, size_threshold) -> List[MicroAction]:
-        conditions = {Condition(c) for c in get_conditions(action.precondition)}
+        preconditions = [MicroAction().add_precondition(Condition(c))
+                         for c in get_conditions(action.precondition)]
         transitions = self.__get_transitions(action.effects)
         transitions = self.__prepare_transitions(transitions)
-        preconditions = [MicroAction().add_precondition(c) for c in conditions]
-        micro_actions = self.__order_micro_actions(preconditions,
-                                                   transitions,
-                                                   size_threshold)
-        return self.__complete_micro_actions(micro_actions, conditions)
+        micro_actions = self.__order_micro_actions_areces(preconditions,
+                                                          transitions)
+        # micro_actions = self.__order_micro_actions(preconditions,
+        #                                            transitions,
+        #                                            size_threshold)
+        return micro_actions
 
     def __get_transitions(self, raw_effects):
         effects = []
@@ -154,13 +158,31 @@ class Action:
                               size_threshold: int):
         print("Action:", self.__name)
         Node.prepare_class_variables(preconditions=preconditions,
-                                          transitions=transitions,
-                                          size_threshold=size_threshold,
-                                          knowledge=self.__knowledge,
-                                          action_args=self.__args,
-                                          distinct_args=self.__distinct_args)
+                                     transitions=transitions,
+                                     size_threshold=size_threshold,
+                                     knowledge=self.__knowledge,
+                                     action_args=self.__args,
+                                     distinct_args=self.__distinct_args)
         initial = Node([MicroAction()], preconditions, transitions, 0)
         best = random_walk(initial, self.__random_walk_timeout)
+        print(self.__name, "best node cost:", best.cost)
+        chained_micro_actions = best.ordered_micro_actions()
+        conditions = set().union(*[p.preconditions for p in preconditions])
+        return self.__complete_micro_actions(chained_micro_actions, conditions)
+
+    def __order_micro_actions_areces(self,
+                                     preconditions: List[MicroAction],
+                                     transitions: List[MicroAction]):
+        print("Action:", self.__name)
+        Node.knowledge = self.__knowledge
+        graph = Node.create_dependency_graph(preconditions,
+                                             transitions,
+                                             self.__distinct_args)
+        max_split_size = len(preconditions) + len(transitions)
+        max_interface_size = len(set().union(*[m.args for m in graph.vertices]))
+        ArecesNode.prepare_class_variables(max_split_size, max_interface_size)
+        initial = ArecesNode(graph, 0)
+        best = beam_search(initial, 1)
         print(self.__name, "best node cost:", best.cost)
         return best.ordered_micro_actions()
 

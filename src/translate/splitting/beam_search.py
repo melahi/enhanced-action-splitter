@@ -1,8 +1,10 @@
-from typing import List, Set, NewType
-from abstract_node import AbstractNode
+from typing import List, Set, TypeVar
+# from .abstract_node import AbstractNode
+from .areces_node import ArecesNode
 
 
-Node = NewType('Node', AbstractNode)
+# Node = TypeVar('Node', bound=AbstractNode)
+Node = TypeVar('Node', bound=ArecesNode)
 
 
 def beam_search(starting_node: Node, width: int) -> Node:
@@ -16,19 +18,19 @@ def beam_search(starting_node: Node, width: int) -> Node:
     visited: Set[Node] = {starting_node}
     expanded: Set[Node] = set()
     candidates: List[Node] = [starting_node]
-    level_off = False
-    while not level_off:
-        level_off = True
-        for candidate in candidates.copy():
+    best_node = starting_node
+    while candidates and candidates[0].is_promising(best_node):
+        best_node = candidates[0]
+        new_candidates: List[Node] = []
+        for candidate in candidates:
             if candidate in expanded:
                 continue
             for neighbor in candidate.neighbors():
                 if neighbor in visited:
                     continue
                 visited.add(neighbor)
-                candidates.append(neighbor)
-            level_off = False
+                new_candidates.append(neighbor)
             expanded.add(candidate)
-        candidates.sort()
-        candidates = candidates[:width]
-    return candidates[0]
+        new_candidates.sort()
+        candidates = new_candidates[:width]
+    return best_node
