@@ -49,7 +49,7 @@ class Graph(Generic[Vertex]):
         for vertex in self.__graph.keys():
             self.__graph[vertex] = {neighbor
                                     for neighbor in self.__graph[vertex]
-                                    if order[neighbor] > order[vertex]}
+                                    if order[neighbor] < order[vertex]}
         return self
 
     def topological_order(self, vertex_priority=None) -> List[Vertex]:
