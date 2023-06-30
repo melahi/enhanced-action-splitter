@@ -28,6 +28,7 @@ def __update_task(task: Task, actions: List[Action]) -> Task:
             task.goal = Conjunction((task.goal, init)).simplified()
         return task
 
+    task.init = sorted(task.init)
     task.types.append(STEP_TYPE)
     task = define_predicate(task, (Action.START_PROCEDURE, (), ()))
     new_predicates = chain.from_iterable(action.new_predicates
