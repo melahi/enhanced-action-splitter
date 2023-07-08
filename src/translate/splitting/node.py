@@ -209,12 +209,12 @@ class Node(AbstractNode):
 
     def __find_choices(self) -> List[MicroAction]:
         determined = set().union(*[m.args for m in self.__micro_actions])
-        def are_relevant_vars(needed: set, all: set):
+        def are_relevant_vars(needed: set, all: set, relevant: set):
+            if not all:
+                return True
             if not determined.issuperset(needed):
                 return False
-            if (    self.__micro_actions[-1].args
-                and all
-                and self.__micro_actions[-1].args.isdisjoint(all)):
+            if relevant.isdisjoint(all):
                 return False
             if (not self.preconditions_vars.issuperset(all)
                 and not determined.issuperset(self.preconditions_vars)):
@@ -222,24 +222,31 @@ class Node(AbstractNode):
             return True
 
         preconditions: List[MicroAction] = []
-        for precondition in self.__preconditions:
-            condition = precondition.preconditions[0]
-            if isinstance(condition.condition, Atom):
-                needed = {}
-            else:
-                needed = self.positive_vars & precondition.args
-            if (    are_relevant_vars(needed, precondition.args)
-                and not any(n in self.__preconditions
-                            for n in (self
-                                      .dependency_graph
-                                      .neighbors(precondition)))):
-                preconditions.append(precondition)
+        relevant_vars = ([determined, {a.name for a in self.action_args}]
+                         if not self.__micro_actions[-1].args
+                         else [self.__micro_actions[-1].args])
+        for relevant in relevant_vars:
+            for precondition in self.__preconditions:
+                condition = precondition.preconditions[0]
+                if isinstance(condition.condition, Atom):
+                    needed = {}
+                else:
+                    needed = self.positive_vars & precondition.args
+                if (    are_relevant_vars(needed, precondition.args, relevant)
+                    and not any(n in self.__preconditions
+                                for n in (self
+                                        .dependency_graph
+                                        .neighbors(precondition)))):
+                    preconditions.append(precondition)
+            if preconditions:
+                break
 
         transitions = [t
                         for t in self.__transitions
                         if (    are_relevant_vars(  t.args
-                                                    & self.preconditions_vars,
-                                                    t.args)
+                                                  & self.preconditions_vars,
+                                                  t.args,
+                                                  relevant_vars[-1])
                             and not any(n in (  self.__preconditions
                                                 + self.__transitions)
                                         for n in (self
