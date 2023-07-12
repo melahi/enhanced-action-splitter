@@ -241,17 +241,20 @@ class Node(AbstractNode):
             if preconditions:
                 break
 
-        transitions = [t
-                        for t in self.__transitions
-                        if (    are_relevant_vars(  t.args
-                                                  & self.preconditions_vars,
-                                                  t.args,
-                                                  relevant_vars[-1])
-                            and not any(n in (  self.__preconditions
-                                                + self.__transitions)
-                                        for n in (self
-                                                  .dependency_graph
-                                                  .neighbors(t))))]
+        if self.__preconditions and not self.__micro_actions[-1].preconditions:
+            transitions = []
+        else:
+            transitions = [t
+                            for t in self.__transitions
+                            if (    are_relevant_vars(  t.args
+                                                    & self.preconditions_vars,
+                                                    t.args,
+                                                    relevant_vars[-1])
+                                and not any(n in (  self.__preconditions
+                                                    + self.__transitions)
+                                            for n in (self
+                                                    .dependency_graph
+                                                    .neighbors(t))))]
 
         return preconditions + transitions
 
