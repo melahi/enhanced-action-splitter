@@ -97,14 +97,14 @@ class Node(AbstractNode):
         
         def negative_condition_dependency(positive_condition: MicroAction,
                                           negative_condition: MicroAction):
+            assert len(negative_condition.preconditions) == 1,\
+                "`positive_condition` should have only one precondition"
+            if isinstance(negative_condition.preconditions[0].condition, Atom):
+                return False
             assert len(positive_condition.preconditions) == 1,\
                 "`positive_condition` should have only one precondition"
             if not isinstance(positive_condition.preconditions[0].condition,
                               Atom):
-                return False
-            assert len(negative_condition.preconditions) == 1,\
-                "`positive_condition` should have only one precondition"
-            if isinstance(negative_condition.preconditions[0].condition, Atom):
                 return False
             return not (negative_condition
                         .args
