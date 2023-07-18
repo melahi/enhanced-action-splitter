@@ -94,6 +94,21 @@ class Node(AbstractNode):
             if micro_action == transition:
                 return False
             return micro_action.is_threatened_by(transition, distinct_args)
+        
+        def negative_condition_dependency(positive_condition: MicroAction,
+                                          negative_condition: MicroAction):
+            assert len(positive_condition.preconditions) == 1,\
+                "`positive_condition` should have only one precondition"
+            if not isinstance(positive_condition.preconditions[0].condition,
+                              Atom):
+                return False
+            assert len(negative_condition.preconditions) == 1,\
+                "`positive_condition` should have only one precondition"
+            if isinstance(negative_condition.preconditions[0].condition, Atom):
+                return False
+            return not (negative_condition
+                        .args
+                        .isdisjoint(positive_condition.args))
 
         def find_edges(criteria, possible_edges):
             return [(m2, m1) for m1, m2 in possible_edges if criteria(m1, m2)]
@@ -104,6 +119,10 @@ class Node(AbstractNode):
                                              permutations(preconditions, r=2)),
                                   dependency_graph)
         dependency_graph = dependency_graph.make_acyclic()
+        dependency_graph = reduce(Graph.add_edge,
+                                  find_edges(negative_condition_dependency,
+                                             product(preconditions, repeat=2)),
+                                  dependency_graph)
         dependency_graph = reduce(Graph.add_edge,
                                   find_edges(threatening_relation,
                                              product(  preconditions
