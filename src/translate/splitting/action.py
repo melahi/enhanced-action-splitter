@@ -73,7 +73,8 @@ class Action:
         transitions = self.__get_transitions(action.effects)
         transitions = self.__prepare_transitions(transitions)
         micro_actions = self.__order_micro_actions_areces(preconditions,
-                                                          transitions)
+                                                          transitions,
+                                                          size_threshold)
         # micro_actions = self.__order_micro_actions(preconditions,
         #                                            transitions,
         #                                            size_threshold)
@@ -172,7 +173,8 @@ class Action:
 
     def __order_micro_actions_areces(self,
                                      preconditions: List[MicroAction],
-                                     transitions: List[MicroAction]):
+                                     transitions: List[MicroAction],
+                                     size_threshold: int):
         print("Action:", self.__name)
         Node.knowledge = self.__knowledge
         graph = Node.create_dependency_graph(preconditions,
@@ -180,7 +182,13 @@ class Action:
                                              self.__distinct_args)
         max_split_size = len(preconditions) + len(transitions)
         max_interface_size = len(set().union(*[m.args for m in graph.vertices]))
-        ArecesNode.prepare_class_variables(max_split_size, max_interface_size)
+        ArecesNode.prepare_class_variables(max_split_size,
+                                           max_interface_size,
+                                           is_areces_cost=False,
+                                           knowledge=self.__knowledge,
+                                           action_args=self.__args,
+                                           preconditions=preconditions,
+                                           ground_size_threshold=size_threshold)
         initial = ArecesNode(graph, 0)
         best = beam_search(initial, 1)
         print(self.__name, "best node cost:", best.cost)
