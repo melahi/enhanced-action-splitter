@@ -5,8 +5,8 @@ from random import randrange, random
 from .abstract_node import AbstractNode
 
 
-EPSILON = 0.5  # The probability of choosing a random child, otherwise
-               # we select the best child (p(best child) = 1 - EPSILON).
+EPSILON = 0.01  # The probability of choosing a random child, otherwise
+                # we select the best child (p(best child) = 1 - EPSILON).
 
 
 Node = TypeVar('Node', bound=AbstractNode)

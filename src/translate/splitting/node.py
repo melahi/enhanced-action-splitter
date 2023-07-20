@@ -134,7 +134,10 @@ class Node(AbstractNode):
     @classmethod
     def count_estimate(cls, micro_action: MicroAction, args=None) -> int:
         args = micro_action.args if args is None else args
-        key = (frozenset(args), tuple(micro_action.preconditions))
+        statics = [p
+                  for p in micro_action.preconditions
+                  if p in cls.statics]
+        key = (frozenset(args), tuple(statics))
         if key not in cls.memoized_estimate:
             typed_args = [a for a in cls.action_args if a.name in key[0]]
             conditions = [c.condition for c in key[1]]
@@ -200,6 +203,20 @@ class Node(AbstractNode):
         current_size = self.__fixed_ground_size + self.count_estimate(last)
         max_size = max(current_size, self.size_threshold)
         nodes = []
+        if not self.__preconditions and not last.args:
+            # Only transitions are left; we recursively pick them one-by-one.
+            choices = self.__find_choices()
+            choices.sort(key=lambda m: len(m.args), reverse=True)
+            last.merge(choices[0])
+            estimate = self.count_estimate(last)
+            child = self.__get_child(last, estimate)
+            child.__micro_actions.append(MicroAction())
+            child_neighbors = child.neighbors()
+            if child_neighbors:
+                return child_neighbors
+            child.__micro_actions.pop()
+            return [child]
+
         for choice in self.__find_choices():
             new_micro_action = last.copy()
             new_micro_action.merge(choice)
@@ -210,11 +227,12 @@ class Node(AbstractNode):
             nodes.append(self.__get_child(new_micro_action,
                                                 estimate))
         if last.args:
-            nodes.append(Node(  self.__micro_actions
-                                        + [MicroAction()],
-                                        self.__preconditions,
-                                        self.__transitions,
-                                        current_size))
+            nodes.extend(Node(  self.__micro_actions
+                              + [MicroAction()],
+                              self.__preconditions,
+                              self.__transitions,
+                              current_size)
+                             .neighbors())
         return nodes
 
     def should_be_pruned(self, other: 'Node') -> bool:
@@ -260,7 +278,7 @@ class Node(AbstractNode):
             if preconditions:
                 break
 
-        if self.__preconditions and not self.__micro_actions[-1].preconditions:
+        if self.__preconditions: # and not self.__micro_actions[-1].preconditions:
             transitions = []
         else:
             transitions = [t
@@ -333,24 +351,29 @@ class Node(AbstractNode):
             visited_new_preconditions.pop()
 
         variables_spans = [last_visit[v] - first_visit[v]
-                            for v in first_visit.keys()
-                            if last_visit[v] - first_visit[v] > 0]
+                           for v in first_visit.keys()
+                           if last_visit[v] - first_visit[v] > 0]
         variables_spans.sort(reverse=True)
 
         # preconditional_micro_actions_count = len(
         #     tuple(filter(lambda x:x, visited_new_preconditions)))
         ground_estimate = (  self.__fixed_ground_size
-                            + self.count_estimate(self.__micro_actions[-1]))
+                           + self.count_estimate(self.__micro_actions[-1])
+                           + sum(self.count_estimate(m) for m in (self.__preconditions + self.__transitions))) # TODO: Overestimating!
         self.__cost = (len(self.__preconditions),
                         max(0, ground_estimate - self.size_threshold),
                     #    len(self.__micro_actions),
-                    #   preconditional_micro_actions_count,
+                    #    preconditional_micro_actions_count,
+                    #    variables_spans,
+                    #    [-1 * p for p in visited_new_preconditions],
+                    #    [-1 * b for b in branches],
+                    #    branches[-1],
+                    #    len(variables_spans),
+                        len(self.__micro_actions),
                         variables_spans,
-                        [-1 * p for p in visited_new_preconditions],
+                    #    [-1 * p for p in visited_new_preconditions],
                     #    [-1 * b for b in branches],
                         branches,
-                    #    branches[-1],
-                        len(self.__micro_actions),
                         ground_estimate)
         return self.__cost
 
