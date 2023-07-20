@@ -20,8 +20,8 @@ from .task_to_string import output
 from .plan_merger import main as plan_merger
 
 
-SIZE_THRESHOLD = 500000
-RANDOM_WALKS_TIMEOUT = 500
+SIZE_THRESHOLD = 200000
+RANDOM_WALKS_TIMEOUT = 200
 
 
 def split():
