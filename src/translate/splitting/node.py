@@ -119,10 +119,10 @@ class Node(AbstractNode):
                                              permutations(preconditions, r=2)),
                                   dependency_graph)
         dependency_graph = dependency_graph.make_acyclic()
-        dependency_graph = reduce(Graph.add_edge,
-                                  find_edges(negative_condition_dependency,
-                                             product(preconditions, repeat=2)),
-                                  dependency_graph)
+        # dependency_graph = reduce(Graph.add_edge,
+        #                           find_edges(negative_condition_dependency,
+        #                                      product(preconditions, repeat=2)),
+        #                           dependency_graph)
         dependency_graph = reduce(Graph.add_edge,
                                   find_edges(threatening_relation,
                                              product(  preconditions
@@ -246,35 +246,29 @@ class Node(AbstractNode):
 
     def __find_choices(self) -> List[MicroAction]:
         determined = set().union(*[m.args for m in self.__micro_actions])
-        def are_relevant_vars(needed: set, all: set, relevant: set):
-            if not all:
-                return True
-            if not determined.issuperset(needed):
-                return False
-            if relevant.isdisjoint(all):
-                return False
-            if (not self.preconditions_vars.issuperset(all)
-                and not determined.issuperset(self.preconditions_vars)):
-                return False
-            return True
-
-        preconditions: List[MicroAction] = []
         relevant_vars = ([determined, {a.name for a in self.action_args}]
                          if not self.__micro_actions[-1].args
-                         else [self.__micro_actions[-1].args])
+                         else [set().union(*(p.find_args()
+                                             for p in (self
+                                                       .__micro_actions[-1]
+                                                       .preconditions)
+                                             if isinstance(p.condition, Atom)))])
+
+        preconditions: List[MicroAction] = []
         for relevant in relevant_vars:
             for precondition in self.__preconditions:
+                if precondition.args.isdisjoint(relevant):
+                    #precondition with no args will be handled in `__get_child`
+                    continue
                 condition = precondition.preconditions[0]
-                if isinstance(condition.condition, Atom):
-                    needed = {}
-                else:
+                if not isinstance(condition.condition, Atom):
                     needed = self.positive_vars & precondition.args
-                if (    are_relevant_vars(needed, precondition.args, relevant)
-                    and not any(n in self.__preconditions
-                                for n in (self
-                                        .dependency_graph
-                                        .neighbors(precondition)))):
-                    preconditions.append(precondition)
+                    if not determined.issuperset(needed):
+                        continue
+                if any(n in self.__preconditions
+                       for n in self.dependency_graph.neighbors(precondition)):
+                    continue
+                preconditions.append(precondition)
             if preconditions:
                 break
 
@@ -283,15 +277,11 @@ class Node(AbstractNode):
         else:
             transitions = [t
                             for t in self.__transitions
-                            if (    are_relevant_vars(  t.args
-                                                    & self.preconditions_vars,
-                                                    t.args,
-                                                    relevant_vars[-1])
-                                and not any(n in (  self.__preconditions
-                                                    + self.__transitions)
-                                            for n in (self
-                                                    .dependency_graph
-                                                    .neighbors(t))))]
+                            if not any(n in (  self.__preconditions
+                                             + self.__transitions)
+                                       for n in (self
+                                                 .dependency_graph
+                                                 .neighbors(t)))]
 
         return preconditions + transitions
 
@@ -326,11 +316,13 @@ class Node(AbstractNode):
                 if precondition in temp_micro_action.preconditions:
                     continue
                 temp_micro_action.add_precondition(precondition)
-                visited_new_preconditions[-1] += 1
+                if not isinstance(precondition.condition, Atom):
+                    continue
                 for arg in precondition.find_args():
                     if arg not in first_visit:
                         first_visit[arg] = i
                     last_visit[arg] = i
+                visited_new_preconditions[-1] += 1
                 if precondition not in self.statics:
                     choices = self.get_omittable_variables(precondition)
                     if choices:
@@ -343,6 +335,16 @@ class Node(AbstractNode):
                 temp = self.count_estimate(temp_micro_action, free_variables)
                 best_branches = min(best_branches, temp)
             branches.append(best_branches)
+
+        # shared_args = {a for a in temp_micro_action.args if ((a in first_visit) and (first_visit[a] != last_visit[a]))}
+        # bridge_size = self.count_estimate(temp_micro_action, shared_args)
+        bridge_sizes = []
+        for i in range(len(self.__micro_actions)):
+            shared_args = set()
+            for a, f in first_visit.items():
+                if f <= i and last_visit[a] > i:
+                    shared_args.add(a)
+            bridge_sizes.append(self.count_estimate(temp_micro_action, shared_args))
 
         if len(self.__preconditions):
             # It might be possible that some remaining precondition
@@ -369,12 +371,17 @@ class Node(AbstractNode):
                     #    [-1 * b for b in branches],
                     #    branches[-1],
                     #    len(variables_spans),
-                        len(self.__micro_actions),
-                        variables_spans,
-                    #    [-1 * p for p in visited_new_preconditions],
+                    #    len(self.__micro_actions),
+                    #     variables_spans,
+                    #    len([p for p in visited_new_preconditions if p]),
+                    #    len(self.__micro_actions),
+                    #    ground_estimate,
+                    #    bridge_sizes,
+                        [-1 * p for p in visited_new_preconditions],
+                    #    branches,
                     #    [-1 * b for b in branches],
-                        branches,
-                        ground_estimate)
+                        ground_estimate,
+                         )
         return self.__cost
 
     def __get_child(self,
