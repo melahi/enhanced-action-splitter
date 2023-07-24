@@ -38,7 +38,6 @@ class Node(AbstractNode):
                                 knowledge: Knowledge,
                                 action_args: Set[str],
                                 distinct_args: Dict[str, Set[str]]):
-        cls.size_threshold = size_threshold
         cls.action_args = action_args
         cls.knowledge = knowledge
         cls.statics = [s
@@ -56,6 +55,9 @@ class Node(AbstractNode):
         cls.dependency_graph = cls.create_dependency_graph(preconditions,
                                                            transitions,
                                                            distinct_args)
+        cls.size_threshold = max(size_threshold,
+                                 cls.lowerbound_size(  preconditions
+                                                     + transitions))
         return cls
 
     @classmethod
@@ -146,8 +148,20 @@ class Node(AbstractNode):
                                           .all_count_estimate(typed_args,
                                                               conditions))
         return cls.memoized_estimate[key]
-    
 
+    @classmethod
+    def lowerbound_size(cls, micro_actions: List[MicroAction]):
+        #NOTE: Static conditions are not considered/supported!
+        #NOTE: Domain of arguments are assumbed to be have more
+        #      than two elements.
+        accumulated_size = 0
+        micro_action = filter(lambda m: all(not m.args.issubset(n.args)
+                                            for n in micro_actions
+                                            if m != n),
+                              micro_actions)
+        for micro_action in micro_actions:
+            accumulated_size += cls.count_estimate(micro_action)
+        return accumulated_size
 
     def __init__(self,
                     micro_actions: List[MicroAction],
@@ -257,13 +271,18 @@ class Node(AbstractNode):
         preconditions: List[MicroAction] = []
         for relevant in relevant_vars:
             for precondition in self.__preconditions:
-                if precondition.args.isdisjoint(relevant):
-                    #precondition with no args will be handled in `__get_child`
-                    continue
+                # if precondition.args.isdisjoint(relevant):
+                #     #precondition with no args will be handled in `__get_child`
+                #     continue
                 condition = precondition.preconditions[0]
-                if not isinstance(condition.condition, Atom):
+                if isinstance(condition.condition, Atom):
+                    if precondition.args.isdisjoint(relevant):
+                        continue
+                else:
                     needed = self.positive_vars & precondition.args
                     if not determined.issuperset(needed):
+                        continue
+                    if not relevant.issuperset(needed):
                         continue
                 if any(n in self.__preconditions
                        for n in self.dependency_graph.neighbors(precondition)):
@@ -316,12 +335,12 @@ class Node(AbstractNode):
                 if precondition in temp_micro_action.preconditions:
                     continue
                 temp_micro_action.add_precondition(precondition)
-                if not isinstance(precondition.condition, Atom):
-                    continue
                 for arg in precondition.find_args():
                     if arg not in first_visit:
                         first_visit[arg] = i
                     last_visit[arg] = i
+                if not isinstance(precondition.condition, Atom):
+                    continue
                 visited_new_preconditions[-1] += 1
                 if precondition not in self.statics:
                     choices = self.get_omittable_variables(precondition)
@@ -361,7 +380,8 @@ class Node(AbstractNode):
         #     tuple(filter(lambda x:x, visited_new_preconditions)))
         ground_estimate = (  self.__fixed_ground_size
                            + self.count_estimate(self.__micro_actions[-1])
-                           + sum(self.count_estimate(m) for m in (self.__preconditions + self.__transitions))) # TODO: Overestimating!
+                           + self.lowerbound_size(  self.__preconditions
+                                                  + self.__transitions))
         self.__cost = (len(self.__preconditions),
                         max(0, ground_estimate - self.size_threshold),
                     #    len(self.__micro_actions),
@@ -372,13 +392,15 @@ class Node(AbstractNode):
                     #    branches[-1],
                     #    len(variables_spans),
                     #    len(self.__micro_actions),
-                    #     variables_spans,
-                    #    len([p for p in visited_new_preconditions if p]),
+                    #    variables_spans,
+                        len([p for p in visited_new_preconditions if p]),
                     #    len(self.__micro_actions),
                     #    ground_estimate,
+                    #    list(zip(bridge_sizes, [-1 * p for p in visited_new_preconditions])),
+                    #    list(zip(bridge_sizes, branches)),
                     #    bridge_sizes,
                         [-1 * p for p in visited_new_preconditions],
-                    #    branches,
+                        branches,
                     #    [-1 * b for b in branches],
                         ground_estimate,
                          )
