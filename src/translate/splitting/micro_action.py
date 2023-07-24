@@ -219,6 +219,10 @@ class MicroAction:
         return self.__transitions.copy()  # Guaranteed to be an ordered list
 
     @property
+    def has_transition(self):
+        return len(self.__transitions) > 0
+
+    @property
     def effects(self):
         return [e for t in self.__transitions for e in t.effects]
 

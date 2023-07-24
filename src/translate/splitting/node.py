@@ -217,21 +217,19 @@ class Node(AbstractNode):
         current_size = self.__fixed_ground_size + self.count_estimate(last)
         max_size = max(current_size, self.size_threshold)
         nodes = []
-        if not self.__preconditions and not last.args:
-            # Only transitions are left; we recursively pick them one-by-one.
-            choices = self.__find_choices()
-            choices.sort(key=lambda m: len(m.args), reverse=True)
-            last.merge(choices[0])
-            estimate = self.count_estimate(last)
-            child = self.__get_child(last, estimate)
-            child.__micro_actions.append(MicroAction())
-            child_neighbors = child.neighbors()
-            if child_neighbors:
-                return child_neighbors
-            child.__micro_actions.pop()
-            return [child]
-
         for choice in self.__find_choices():
+            if choice.has_transition:
+                new_micro_action = last.copy()
+                new_micro_action.merge(choice)
+                estimate = self.count_estimate(new_micro_action)
+                child = self.__get_child(new_micro_action, estimate)
+                child.__micro_actions.append(MicroAction())
+                child_neighbors = child.neighbors()
+                if child_neighbors:
+                    return child_neighbors
+                child.__micro_actions.pop()
+                return [child]
+
             new_micro_action = last.copy()
             new_micro_action.merge(choice)
             estimate = self.count_estimate(new_micro_action)
@@ -260,6 +258,16 @@ class Node(AbstractNode):
 
     def __find_choices(self) -> List[MicroAction]:
         determined = set().union(*[m.args for m in self.__micro_actions])
+        if not self.__micro_actions[-1].args:
+            for transition in self.__transitions:
+                needed_args = transition.args & self.preconditions_vars
+                if not determined.issuperset(needed_args):
+                    continue
+                if any(n in (self.__preconditions + self.__transitions)
+                       for n in self.dependency_graph.neighbors(transition)):
+                    continue
+                return [transition]
+
         relevant_vars = ([determined, {a.name for a in self.action_args}]
                          if not self.__micro_actions[-1].args
                          else [set().union(*(p.find_args()
@@ -267,7 +275,6 @@ class Node(AbstractNode):
                                                        .__micro_actions[-1]
                                                        .preconditions)
                                              if isinstance(p.condition, Atom)))])
-
         preconditions: List[MicroAction] = []
         for relevant in relevant_vars:
             for precondition in self.__preconditions:
@@ -290,19 +297,7 @@ class Node(AbstractNode):
                 preconditions.append(precondition)
             if preconditions:
                 break
-
-        if self.__preconditions: # and not self.__micro_actions[-1].preconditions:
-            transitions = []
-        else:
-            transitions = [t
-                            for t in self.__transitions
-                            if not any(n in (  self.__preconditions
-                                             + self.__transitions)
-                                       for n in (self
-                                                 .dependency_graph
-                                                 .neighbors(t)))]
-
-        return preconditions + transitions
+        return preconditions
 
     def __calculate_cost(self):
         # Cost criteria:
