@@ -218,18 +218,6 @@ class Node(AbstractNode):
         max_size = max(current_size, self.size_threshold)
         nodes = []
         for choice in self.__find_choices():
-            if choice.has_transition:
-                new_micro_action = last.copy()
-                new_micro_action.merge(choice)
-                estimate = self.count_estimate(new_micro_action)
-                child = self.__get_child(new_micro_action, estimate)
-                child.__micro_actions.append(MicroAction())
-                child_neighbors = child.neighbors()
-                if child_neighbors:
-                    return child_neighbors
-                child.__micro_actions.pop()
-                return [child]
-
             new_micro_action = last.copy()
             new_micro_action.merge(choice)
             estimate = self.count_estimate(new_micro_action)
@@ -258,46 +246,52 @@ class Node(AbstractNode):
 
     def __find_choices(self) -> List[MicroAction]:
         determined = set().union(*[m.args for m in self.__micro_actions])
-        if not self.__micro_actions[-1].args:
-            for transition in self.__transitions:
-                needed_args = transition.args & self.preconditions_vars
-                if not determined.issuperset(needed_args):
-                    continue
-                if any(n in (self.__preconditions + self.__transitions)
-                       for n in self.dependency_graph.neighbors(transition)):
-                    continue
-                return [transition]
+        def are_relevant_vars(needed: set, all: set, relevant: set):
+            # The following case will be handled in `__get_child()`
+            # if not all:
+            #     return True
+            if not determined.issuperset(needed):
+                return False
+            if relevant.isdisjoint(all):
+                return False
+            if (not self.preconditions_vars.issuperset(all)
+                and not determined.issuperset(self.preconditions_vars)):
+                return False
+            return True
 
-        relevant_vars = ([determined, {a.name for a in self.action_args}]
-                         if not self.__micro_actions[-1].args
-                         else [set().union(*(p.find_args()
-                                             for p in (self
-                                                       .__micro_actions[-1]
-                                                       .preconditions)
-                                             if isinstance(p.condition, Atom)))])
         preconditions: List[MicroAction] = []
+        relevant_vars = ([determined, {a.name for a in self.action_args}]
+                          if not self.__micro_actions[-1].args
+                          else [self.__micro_actions[-1].args])
         for relevant in relevant_vars:
             for precondition in self.__preconditions:
-                # if precondition.args.isdisjoint(relevant):
-                #     #precondition with no args will be handled in `__get_child`
-                #     continue
                 condition = precondition.preconditions[0]
                 if isinstance(condition.condition, Atom):
-                    if precondition.args.isdisjoint(relevant):
-                        continue
+                    needed = {}
                 else:
                     needed = self.positive_vars & precondition.args
-                    if not determined.issuperset(needed):
-                        continue
-                    if not relevant.issuperset(needed):
-                        continue
-                if any(n in self.__preconditions
-                       for n in self.dependency_graph.neighbors(precondition)):
-                    continue
-                preconditions.append(precondition)
+                if (    are_relevant_vars(needed, precondition.args, relevant)
+                    and not any(n in self.__preconditions
+                                for n in (self
+                                          .dependency_graph
+                                          .neighbors(precondition)))):
+                    preconditions.append(precondition)
             if preconditions:
                 break
-        return preconditions
+
+        transitions = [t
+                       for t in self.__transitions
+                       if (    are_relevant_vars(  t.args
+                                                 & self.preconditions_vars,
+                                                 t.args,
+                                                 relevant_vars[0])
+                           and not any(n in (  self.__preconditions
+                                                + self.__transitions)
+                                        for n in (self
+                                                  .dependency_graph
+                                                  .neighbors(t))))]
+
+        return preconditions + transitions
 
     def __calculate_cost(self):
         # Cost criteria:
@@ -371,6 +365,10 @@ class Node(AbstractNode):
                            if last_visit[v] - first_visit[v] > 0]
         variables_spans.sort(reverse=True)
 
+        completion_distance = [max(last_visit[v] - i for v in m.args if v in last_visit)
+                               if m.args else 0
+                               for i, m in enumerate(self.__micro_actions)]
+
         # preconditional_micro_actions_count = len(
         #     tuple(filter(lambda x:x, visited_new_preconditions)))
         ground_estimate = (  self.__fixed_ground_size
@@ -387,17 +385,20 @@ class Node(AbstractNode):
                     #    branches[-1],
                     #    len(variables_spans),
                     #    len(self.__micro_actions),
-                    #    variables_spans,
-                        len([p for p in visited_new_preconditions if p]),
+                    #    len([p for p in visited_new_preconditions if p]),
                     #    len(self.__micro_actions),
                     #    ground_estimate,
                     #    list(zip(bridge_sizes, [-1 * p for p in visited_new_preconditions])),
                     #    list(zip(bridge_sizes, branches)),
                     #    bridge_sizes,
-                        [-1 * p for p in visited_new_preconditions],
-                        branches,
-                    #    [-1 * b for b in branches],
+                         [-1 * p for p in visited_new_preconditions if p],
                         ground_estimate,
+                        branches,
+                    #    len(self.__micro_actions),
+                    #    variables_spans,
+                    #     list(zip(branches, [-1 * p for p in visited_new_preconditions])),
+                    #    [-1 * b for b in branches],
+                    #    ground_estimate,
                          )
         return self.__cost
 

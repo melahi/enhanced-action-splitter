@@ -72,12 +72,12 @@ class Action:
                          for c in get_conditions(action.precondition)]
         transitions = self.__get_transitions(action.effects)
         transitions = self.__prepare_transitions(transitions)
-        micro_actions = self.__order_micro_actions_areces(preconditions,
-                                                          transitions,
-                                                          size_threshold)
-        # micro_actions = self.__order_micro_actions(preconditions,
-        #                                            transitions,
-        #                                            size_threshold)
+        # micro_actions = self.__order_micro_actions_areces(preconditions,
+        #                                                   transitions,
+        #                                                   size_threshold)
+        micro_actions = self.__order_micro_actions(preconditions,
+                                                   transitions,
+                                                   size_threshold)
         return micro_actions
 
     def __get_transitions(self, raw_effects):
@@ -168,6 +168,7 @@ class Action:
         best = random_walk(initial, self.__random_walk_timeout)
         print(self.__name, "best node cost:", best.cost)
         chained_micro_actions = best.ordered_micro_actions()
+        return chained_micro_actions
         conditions = set().union(*[p.preconditions for p in preconditions])
         return self.__complete_micro_actions(chained_micro_actions, conditions)
 
