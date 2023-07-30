@@ -29,7 +29,7 @@ class Action:
     Order them in a way to help the searching process."""
 
     START_PROCEDURE = "start_procedure"
-    STEP_TYPE = "steps"
+    STEP_TYPE = "splitting_step_type"
 
     def __init__(self,
                  knowledge: Knowledge,
@@ -66,6 +66,18 @@ class Action:
                                                      indent)
         return "\n".join(m.to_string(f"{self.__name}_{i}", self.__args, indent)
                          for i, m in enumerate(self.__micro_actions))
+
+    def _set_micro_actions(self, micro_actions: List[MicroAction]):
+        self.__micro_actions = micro_actions.copy()
+        return self
+
+    def _set_name(self, name):
+        self.__name = name
+        return self
+
+    def _set_args(self, args):
+        self.__args = args
+        return self
 
     def __split_action(self, action, size_threshold) -> List[MicroAction]:
         preconditions = [MicroAction().add_precondition(Condition(c))
