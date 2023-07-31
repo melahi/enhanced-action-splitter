@@ -30,4 +30,4 @@ def get_conditions(condition):
         return [condition]
     if isinstance(condition, Truth):
         return []
-    raise ValueError("Unexpected condition type!")
+    raise ValueError(f"Unexpected condition type: {type(condition)}")

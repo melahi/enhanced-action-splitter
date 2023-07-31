@@ -282,6 +282,8 @@ class Node(AbstractNode):
             if preconditions:
                 break
 
+        if not self.__preconditions and len(relevant_vars) == 2:
+            del relevant_vars[0]
         transitions = [t
                        for t in self.__transitions
                        if (    are_relevant_vars(  t.args

@@ -7,7 +7,8 @@ import normalize
 from invariant_finder import find_invariants
 from invariants import Invariant
 from .invariants import construct_arg_expert
-from pddl import Task, Literal, Atom, Assign, Effect
+import pddl
+from pddl import Task, Action, Literal, Atom, Assign, Effect, NegatedAtom
 from pddl.conditions import Conjunction, ConstantCondition
 from pddl.conditions import JunctorCondition, Truth
 from pddl.pddl_types import TypedObject
@@ -116,12 +117,64 @@ class Knowledge:
 
         return is_ancestor(type1, type2) or is_ancestor(type2, type1)
 
+    def __get_positive(self, task: Task, negative: NegatedAtom):
+        name = f"NOT-{negative.predicate}"
+        positive = Atom(name, negative.args)
+        if any(p.name == name for p in task.predicates):
+            return positive
+        negative_predicate = next(p
+                                  for p in task.predicates
+                                  if p.name == negative.predicate)
+        new_predicate = pddl.Predicate(name, negative_predicate.arguments)
+        task.predicates.append(new_predicate)
+
+        args_types = [a.type_name for a in new_predicate.arguments]
+        excluded_args = [a.args
+                         for a in task.init
+                         if    isinstance(a, Atom)
+                           and a.predicate == negative.predicate]
+        for possible_arg in product(*(self.__objects[t] for t in args_types)):
+            possible_arg = tuple(a.name for a in possible_arg)
+            if possible_arg in excluded_args:
+                continue
+            task.init.append(Atom(name, possible_arg))
+
+        negated_class = {Atom: NegatedAtom, NegatedAtom: Atom}
+        for action in task.actions:
+            new_effects = []
+            for effect in action.effects:
+                assert isinstance(effect, Effect),  "Unexpected effect type!"
+                if effect.literal.predicate == negative.predicate:
+                    new_effect = effect.copy()
+                    new_literal = negated_class[effect.literal.__class__](
+                        name, effect.literal.args)
+                    new_effect.literal = new_literal
+                    new_effects.append(new_effect)
+            action.effects.extend(new_effects)
+        return positive
+
+    def __get_rid_of_negative_preconditions(self, task: Task):
+        for action in task.actions:
+            conditions = get_conditions(action.precondition)
+            for i, condition in enumerate(conditions):
+                if isinstance(condition, NegatedAtom) and condition.predicate != "=":
+                    conditions[i] = self.__get_positive(task, condition)
+            action.precondition = Conjunction(conditions)
+            for effect in action.effects:
+                conditions = get_conditions(effect.condition)
+                for i, condition in enumerate(conditions):
+                    if isinstance(condition, NegatedAtom) and condition.predicate != "=":
+                        conditions[i] = self.__get_positive(task, condition)
+                effect.condition = Conjunction(conditions)
+        return task
+
     def __extract_knowledge(self, task: Task):
         normalize.normalize(task)
         self.__extract_domains(task)
+        task = self.__get_rid_of_negative_preconditions(task)
         task = self.__filter_not_instantiable_actions(task)
         # TODO: Perhaps I can find `reachable_action_params` needed for the
-        #       following function, by using or own versions of `invariants`.
+        #       following function, by using our own versions of `invariants`.
         invariants = find_invariants(task, None)
         invariant_size = self.__exactly_one_invariants(invariants, task.init)
         for invariant in invariant_size:
