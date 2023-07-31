@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/bin/env pypy3
 
 
 import sys
@@ -20,7 +20,7 @@ from .task_to_string import output
 from .plan_merger import main as plan_merger
 
 
-SIZE_THRESHOLD = 1000000
+SIZE_THRESHOLD = 2_000_000
 RANDOM_WALKS_TIMEOUT = 500
 
 

@@ -50,7 +50,8 @@ def random_walk(starting_node: Node, timeout: float) -> Node:
     print("Start random walk:")
     iteration = 0
     starting_time = time()
-    while time() - starting_time <= timeout:
+    MAX_ITERATION = 200_000;
+    while time() - starting_time <= timeout and iteration < MAX_ITERATION:
         iteration += 1
         if iteration % 1000 == 0:
             print("Iteration:", iteration, flush=True)

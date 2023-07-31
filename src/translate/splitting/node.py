@@ -1,6 +1,7 @@
 from typing import List, Set, Dict
 from itertools import permutations, product
 from functools import reduce
+import math
 
 from pddl import Atom
 
@@ -80,6 +81,8 @@ class Node(AbstractNode):
             assert len(object.preconditions) == 1,\
                 "`object` should be a precondition"
             subject_determinable = cls.get_omittable_variables(subject)
+            if len(subject_determinable) != 1:
+                return False
             object_determinable = cls.get_omittable_variables(object
                                                               .preconditions[0])
             if len(object_determinable) == 1:
@@ -312,71 +315,32 @@ class Node(AbstractNode):
             return self.__cost
 
         # Finding spans of variables
-        first_visit = {}
-        last_visit = {}
         visited_new_preconditions = []
-        branches = []
-        omittables = []
-        temp_micro_action = MicroAction()
+        visited_preconditions = set()
+        arg_visit = {} # A dict from arg to ["first visit", "last visit"]
+
         for i, micro_action in enumerate(self.__micro_actions):
             visited_new_preconditions.append(0)
             for precondition in micro_action.preconditions:
-                if precondition in temp_micro_action.preconditions:
+                # if not isinstance(precondition.condition, Atom):
+                #     continue
+                if precondition in visited_preconditions:
                     continue
-                temp_micro_action.add_precondition(precondition)
-                for arg in precondition.find_args():
-                    if arg not in first_visit:
-                        first_visit[arg] = i
-                    last_visit[arg] = i
-                if not isinstance(precondition.condition, Atom):
-                    continue
+                visited_preconditions.add(precondition)
                 visited_new_preconditions[-1] += 1
-                if precondition not in self.statics:
-                    choices = self.get_omittable_variables(precondition)
-                    if choices:
-                        omittables.append(choices)
-            for transition in micro_action.transitions:
-                temp_micro_action.add_transition(transition)
-            best_branches = float('inf')
-            for omittable in product(*omittables):
-                free_variables = temp_micro_action.args - set(omittable)
-                temp = self.count_estimate(temp_micro_action, free_variables)
-                best_branches = min(best_branches, temp)
-            branches.append(best_branches)
-
-        # shared_args = {a for a in temp_micro_action.args if ((a in first_visit) and (first_visit[a] != last_visit[a]))}
-        # bridge_size = self.count_estimate(temp_micro_action, shared_args)
-        bridge_sizes = []
-        for i in range(len(self.__micro_actions)):
-            shared_args = set()
-            for a, f in first_visit.items():
-                if f <= i and last_visit[a] > i:
-                    shared_args.add(a)
-            bridge_sizes.append(self.count_estimate(temp_micro_action, shared_args))
 
         if len(self.__preconditions):
             # It might be possible that some remaining precondition
             # reduce the `branches`.
-            branches.pop()
             visited_new_preconditions.pop()
 
-        variables_spans = [last_visit[v] - first_visit[v]
-                           for v in first_visit.keys()
-                           if last_visit[v] - first_visit[v] > 0]
-        variables_spans.sort(reverse=True)
-
-        completion_distance = [max(last_visit[v] - i for v in m.args if v in last_visit)
-                               if m.args else 0
-                               for i, m in enumerate(self.__micro_actions)]
-
-        # preconditional_micro_actions_count = len(
-        #     tuple(filter(lambda x:x, visited_new_preconditions)))
         ground_estimate = (  self.__fixed_ground_size
                            + self.count_estimate(self.__micro_actions[-1])
                            + self.lowerbound_size(  self.__preconditions
                                                   + self.__transitions))
+
         self.__cost = (len(self.__preconditions),
-                        max(0, ground_estimate - self.size_threshold),
+                       max(0, ground_estimate - self.size_threshold),
                     #    len(self.__micro_actions),
                     #    preconditional_micro_actions_count,
                     #    variables_spans,
@@ -385,21 +349,20 @@ class Node(AbstractNode):
                     #    branches[-1],
                     #    len(variables_spans),
                     #    len(self.__micro_actions),
-                    #    len([p for p in visited_new_preconditions if p]),
+                    #     [-1 * p for p in visited_new_preconditions if p],
                     #    len(self.__micro_actions),
-                    #    ground_estimate,
                     #    list(zip(bridge_sizes, [-1 * p for p in visited_new_preconditions])),
                     #    list(zip(bridge_sizes, branches)),
                     #    bridge_sizes,
-                         [-1 * p for p in visited_new_preconditions if p],
-                        ground_estimate,
-                        branches,
-                    #    len(self.__micro_actions),
+                    #    branches,
+                       len(self.__micro_actions),
+                       int(math.log(ground_estimate, 2)),
+                       [-1 * p for p in visited_new_preconditions],
                     #    variables_spans,
-                    #     list(zip(branches, [-1 * p for p in visited_new_preconditions])),
+                    #    list(zip(branches, [-1 * p for p in visited_new_preconditions])),
                     #    [-1 * b for b in branches],
-                    #    ground_estimate,
-                         )
+                       ground_estimate,
+                      )
         return self.__cost
 
     def __get_child(self,
