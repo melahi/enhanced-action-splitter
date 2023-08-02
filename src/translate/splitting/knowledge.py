@@ -166,13 +166,18 @@ class Knowledge:
                     if isinstance(condition, NegatedAtom) and condition.predicate != "=":
                         conditions[i] = self.__get_positive(task, condition)
                 effect.condition = Conjunction(conditions)
+        conditions = get_conditions(task.goal)
+        for i, condition in enumerate(conditions):
+            if isinstance(condition, NegatedAtom) and condition.predicate != "=":
+                conditions[i] = self.__get_positive(task, condition)
+        task.goal = Conjunction(conditions)
         return task
 
     def __extract_knowledge(self, task: Task):
         normalize.normalize(task)
         self.__extract_domains(task)
-        task = self.__get_rid_of_negative_preconditions(task)
         task = self.__filter_not_instantiable_actions(task)
+        task = self.__get_rid_of_negative_preconditions(task)
         # TODO: Perhaps I can find `reachable_action_params` needed for the
         #       following function, by using our own versions of `invariants`.
         invariants = find_invariants(task, None)
