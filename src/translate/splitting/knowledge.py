@@ -480,5 +480,14 @@ class Knowledge:
         return self
 
     def __set_hierarchy(self, task: Task):
+        root_type_name = None
+        all_types = set()
         for pddl_type in task.types:
+            if pddl_type.basetype_name is None:
+                root_type_name = pddl_type.name
             self.__type_parent[pddl_type.name] = pddl_type.basetype_name
+            all_types.add(pddl_type.name)
+            all_types.add(pddl_type.basetype_name)
+        for type_ in all_types:
+            if type_ not in self.__type_parent:
+                self.__type_parent[type_] = root_type_name
