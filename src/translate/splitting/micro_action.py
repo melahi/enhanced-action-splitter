@@ -204,11 +204,11 @@ class MicroAction:
 
     @property
     def args(self):
-        return self.__args.copy()
+        return self.__args
 
     @property
     def preconditions(self):
-        return self.__preconditions.copy()  # Guaranteed to be an ordered list
+        return self.__preconditions  # Guaranteed to be an ordered list
 
     @property
     def has_precondition(self):
@@ -216,7 +216,7 @@ class MicroAction:
 
     @property
     def transitions(self):
-        return self.__transitions.copy()  # Guaranteed to be an ordered list
+        return self.__transitions  # Guaranteed to be an ordered list
 
     @property
     def has_transition(self):

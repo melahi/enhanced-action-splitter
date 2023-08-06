@@ -5,8 +5,8 @@ from random import randrange, random
 from .abstract_node import AbstractNode
 
 
-EPSILON = 0.01  # The probability of choosing a random child, otherwise
-                # we select the best child (p(best child) = 1 - EPSILON).
+EPSILON = 0.1  # The probability of choosing a random child, otherwise
+               # we select the best child (p(best child) = 1 - EPSILON).
 
 
 Node = TypeVar('Node', bound=AbstractNode)
@@ -50,8 +50,7 @@ def random_walk(starting_node: Node, timeout: float) -> Node:
     print("Start random walk:")
     iteration = 0
     starting_time = time()
-    MAX_ITERATION = 200_000;
-    while time() - starting_time <= timeout and iteration < MAX_ITERATION:
+    while time() - starting_time <= timeout:
         iteration += 1
         if iteration % 1000 == 0:
             print("Iteration:", iteration, flush=True)
