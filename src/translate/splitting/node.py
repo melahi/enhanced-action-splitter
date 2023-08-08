@@ -62,7 +62,7 @@ class Node(AbstractNode):
         return cls
 
     @classmethod
-    def create_dependency_graph(cls, 
+    def create_dependency_graph(cls,
                                 preconditions: List[MicroAction],
                                 transitions: List[MicroAction],
                                 distinct_args: Dict[str, Set[str]]):
@@ -99,7 +99,7 @@ class Node(AbstractNode):
             if micro_action == transition:
                 return False
             return micro_action.is_threatened_by(transition, distinct_args)
-        
+
         def negative_condition_dependency(positive_condition: MicroAction,
                                           negative_condition: MicroAction):
             assert len(negative_condition.preconditions) == 1,\
@@ -230,21 +230,20 @@ class Node(AbstractNode):
             # It is a terminal node
             return []
 
-        if not self.__micro_actions[-1].args:
-            for micro_action in self.__preconditions:
-                for arg in micro_action.args:
-                    if arg not in self.__visit_time:
-                        break
-                else:
-                    new_micro_action = self.__micro_actions[-1].copy()
-                    new_micro_action.merge(micro_action)
-                    estimate = self.count_estimate(new_micro_action)
-                    child = self.__get_child(new_micro_action, estimate)
-                    if not child.__preconditions and not self.__transitions:
-                        return [child]
-                    child.__micro_actions.append(MicroAction())
-                    return child.neighbors()
-
+        # if not self.__micro_actions[-1].args:
+        #     for micro_action in self.__preconditions:
+        #         for arg in micro_action.args:
+        #             if arg not in self.__visit_time:
+        #                 break
+        #         else:
+        #             new_micro_action = self.__micro_actions[-1].copy()
+        #             new_micro_action.merge(micro_action)
+        #             estimate = self.count_estimate(new_micro_action)
+        #             child = self.__get_child(new_micro_action, estimate)
+        #             if not child.__preconditions and not self.__transitions:
+        #                 return [child]
+        #             child.__micro_actions.append(MicroAction())
+        #             return child.neighbors()
 
         last = self.__micro_actions[-1]
         current_size = self.__fixed_ground_size + self.count_estimate(last)
@@ -322,11 +321,19 @@ class Node(AbstractNode):
                 break
 
         if preconditions:
-            determined_args = [p
-                               for p in preconditions
-                               if all(a in self.__visit_time for a in p.args)]
-            if determined_args:
-                preconditions = determined_args
+            known_preconditions = []
+            determined_args = {a for a in self.__visit_time}
+            for precondition in preconditions:
+                if precondition.args.issubset(determined_args):
+                    known_preconditions.append(precondition)
+                    continue
+                omittable_args = self.get_omittable_variables(precondition.preconditions[0])
+                omittable = precondition.args - determined_args
+                if len(omittable) == 1 and omittable.issubset(omittable_args):
+                    known_preconditions.append(precondition)
+
+            if known_preconditions:
+                preconditions = known_preconditions
             else:
                 first_visited_args = [(p, min(self.__visit_time.get(a, float('inf'))
                                               for a in p.args))
@@ -356,7 +363,7 @@ class Node(AbstractNode):
         # Cost criteria:
         # 1. spans of preconditional components,
         #       preconditional component:
-        #          The set of micro-actions with preconditions that 
+        #          The set of micro-actions with preconditions that
         #          are connected in the term of their sharing arguments
         # 2. number of micro-actions with preconditions,
         # 3. total number of micro-actions,
@@ -372,62 +379,77 @@ class Node(AbstractNode):
 
         # Finding spans of variables
         visited_new_preconditions = []
-        visited_preconditions = {p
-                                 for p in self.__micro_actions[0].preconditions
-                                 if not p.find_args()} # ignoring condition with
-                                                       # no arguments.
+        visited_preconditions = set()
         arg_visit = {} # A dict from arg to ["first visit", "last visit"]
-        branching_points = 0
-        preconditional_args: List[Set[str]] = []
         determined_args = set()
-
-        def update_arg_visit(condition: Condition, point):
+        def update_arg_visit(condition: Condition, index):
             args = condition.find_args()
             if isinstance(condition.condition, Atom):
-                preconditional_args[point].update(args)
                 for arg in args:
-                        arg_visit.setdefault(arg, [point, point])[1] = point
+                        arg_visit.setdefault(arg, [index, index])[1] = index
             else:
-                last_visited = max(arg_visit.setdefault(a, [point, point])[0]
+                last_visited = max(arg_visit.setdefault(a, [index, index])[0]
                                    for a in args)
                 for arg in args:
                     if arg_visit[arg][0] == last_visited:
-                        arg_visit[arg][1] = point
-                        preconditional_args[point].add(arg)
+                        arg_visit[arg][1] = index
 
-        for micro_action in self.__micro_actions:
-            if not micro_action.args.issubset(determined_args):
-                branching_points += 1
-                visited_new_preconditions.append(0)
-                preconditional_args.append(set())
-            determined_args |= micro_action.args
+        for i, micro_action in enumerate(self.__micro_actions):
+            visited_new_preconditions.append(0)
             for precondition in micro_action.preconditions:
-                # if not isinstance(precondition.condition, Atom):
-                #     continue
                 if precondition in visited_preconditions:
                     continue
                 visited_preconditions.add(precondition)
-                update_arg_visit(precondition, branching_points - 1)
+                # omittable_args = self.get_omittable_variables(precondition)
+                # omittable = precondition.find_args() - determined_args
+                # if len(omittable) == 1 and omittable.issubset(omittable_args):
+                #     max_first = max([0] + [arg_visit[a][0]
+                #                            for a in precondition.find_args() - omittable])
+                #     visited_new_preconditions[max_first] += 1
+                #     update_arg_visit(precondition, max_first)
+                # else:
+                #     visited_new_preconditions[-1] += 1
+                #     update_arg_visit(precondition, i)
                 visited_new_preconditions[-1] += 1
+                update_arg_visit(precondition, i)
+            determined_args |= micro_action.args
 
-        if not self.__micro_actions[-1].args:
-            for precondition in self.__preconditions:
-                if not precondition.args.issubset(determined_args):
-                    branching_points += 1
-                    visited_new_preconditions.append(0)
-                    preconditional_args.append(set())
-                    break
         for micro_action in self.__preconditions:
-            update_arg_visit(micro_action.preconditions[0], branching_points - 1)
+            precondition = micro_action.preconditions[0]
+            # omittable_args = self.get_omittable_variables(precondition)
+            # omittable = micro_action.args - determined_args
+            # if len(omittable) == 1 and omittable.issubset(omittable_args):
+            #     max_first = max([0] + [arg_visit[a][0]
+            #                            for a in micro_action.args - omittable])
+            #     visited_new_preconditions[max_first] += 1
+            #     update_arg_visit(precondition, max_first)
+            # else:
+            #     visited_new_preconditions[-1] += 1
+            #     update_arg_visit(precondition, len(self.__micro_actions) - 1)
             visited_new_preconditions[-1] += 1
+            update_arg_visit(precondition, len(self.__micro_actions) - 1)
 
-        open_interval = sorted((l - f for f, l in arg_visit.values() if l != f), reverse=True)
+        decision_points = {f for f,_ in arg_visit.values()}
+        open_interval = []
+        for first, last in arg_visit.values():
+            if first == last:
+                continue
+            open_interval.append(len([p
+                                      for p in decision_points
+                                      if first < p and p <= last]))
+        open_interval.sort(reverse=True)
 
-        open_args = []
-        for args in preconditional_args:
-            open_args.append(sorted((arg_visit[a][1] for a in args), reverse=True))
+        # open_args = [0] * len(self.__micro_actions)
+        # for first, last in arg_visit.values():
+        #     for i in range(first, last):
+        #         open_args[i] += 1
 
-        # preconditional_micro_actions = len([p for p in visited_new_preconditions if p])
+        # open_args = []
+        # for i, micro_action in enumerate(self.__micro_actions):
+        #     open_args.append(sorted((arg_visit[a][1]
+        #                              for a in micro_action.args
+        #                              if a in arg_visit and arg_visit[a][0] == i),
+        #                             reverse=True))
 
         ground_estimate = (  self.__fixed_ground_size
                            + self.count_estimate(self.__micro_actions[-1])
@@ -454,18 +476,25 @@ class Node(AbstractNode):
                     #   len(open_interval),
                     #   len([p for p in visited_new_preconditions if p]),
                     #   len(self.__micro_actions),
-                       branching_points,
-                       int(math.log(ground_estimate, 2)),
-                       open_interval,
-                    #   ground_estimate,
-                       list(zip([-1 * p for p in visited_new_preconditions], open_args)),
+                    #   branching_points,
+                    #   open_interval,
+                    #   len(self.__micro_actions),
+                    #   open_interval,
+                    #    open_interval,
+                        len(decision_points),
+                    #    int(math.log(ground_estimate, 2)),
+                        ground_estimate,
+                       [-1 * p for p in visited_new_preconditions if p],
+                    #    [(-1 * p, o) for p, o in zip(visited_new_preconditions, open_args) if p],
                     #   open_interval,
                     #    variables_spans,
                     #    list(zip(branches, [-1 * p for p in visited_new_preconditions])),
                     #    [-1 * b for b in branches],
-                       ground_estimate,
                        # [-1 * p for p in visited_new_preconditions],
-                    #   len(self.__micro_actions),
+                       ground_estimate,
+                       len(self.__micro_actions),
+                    #   open_args,
+                    #   open_interval,
                       )
         return self.__cost
 
@@ -498,9 +527,10 @@ class Node(AbstractNode):
             level_off = True
             new_remaining_preconditions: List[MicroAction] = []
             for precondition in remaining_preconditions:
-                omittables = self.get_omittable_variables(precondition.preconditions[0])
-                needed_args = precondition.args - omittables
-                if new_micro_action.args.issuperset(needed_args):
+                # omittables = self.get_omittable_variables(precondition.preconditions[0])
+                # needed_args = precondition.args - omittables
+                # if new_micro_action.args.issuperset(needed_args):
+                if new_micro_action.args.issuperset(precondition.args):
                     # This addition might be redundant; `precondition`
                     # might already exist in the `new_micro_action`.
                     new_micro_action.merge(precondition)
