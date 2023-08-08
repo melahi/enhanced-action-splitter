@@ -449,7 +449,7 @@ class Node(AbstractNode):
             visited_new_preconditions[-1] += 1
             update_arg_visit(precondition, len(self.__micro_actions) - 1)
 
-        decision_points = {f for f,_ in arg_visit.values()}
+        decision_points = sorted({f for f,_ in arg_visit.values()})
         open_interval = []
         for first, last in arg_visit.values():
             if first == last:
@@ -503,8 +503,10 @@ class Node(AbstractNode):
                     #    open_interval,
                         len(decision_points),
                         int(math.log(ground_estimate, 2)),
-                       [-1 * p for p in visited_new_preconditions if p],
+                       [-1 * visited_new_preconditions[p] for p in decision_points],
                         ground_estimate,
+                    #    decision_points,
+                    #    visited_new_preconditions,
                     #    len(self.__micro_actions),
                     #    [(-1 * p, o) for p, o in zip(visited_new_preconditions, open_args) if p],
                     #   open_interval,
