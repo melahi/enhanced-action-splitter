@@ -320,7 +320,7 @@ class Node(AbstractNode):
             if preconditions:
                 break
 
-        if preconditions:
+        if not self.__micro_actions[-1].args:
             known_preconditions = []
             determined_args = {a for a in self.__visit_time}
             for precondition in preconditions:
@@ -334,14 +334,14 @@ class Node(AbstractNode):
 
             if known_preconditions:
                 preconditions = known_preconditions
-            else:
-                first_visited_args = [(p, min(self.__visit_time.get(a, float('inf'))
-                                              for a in p.args))
-                                      for p in preconditions]
-                min_first = min(v[1] for v in first_visited_args)
-                preconditions = [v[0]
-                                 for v in first_visited_args
-                                 if v[1] == min_first]
+            # else :
+            #     first_visited_args = [(p, min(self.__visit_time.get(a, float('inf'))
+            #                                   for a in p.args))
+            #                           for p in preconditions]
+            #     min_first = min(v[1] for v in first_visited_args)
+            #     preconditions = [v[0]
+            #                      for v in first_visited_args
+            #                      if v[1] == min_first]
 
         if not self.__preconditions and len(relevant_vars) == 2:
             del relevant_vars[0]
@@ -482,17 +482,17 @@ class Node(AbstractNode):
                     #   open_interval,
                     #    open_interval,
                         len(decision_points),
-                    #    int(math.log(ground_estimate, 2)),
-                        ground_estimate,
+                        int(math.log(ground_estimate, 2)),
+                    #     ground_estimate,
                        [-1 * p for p in visited_new_preconditions if p],
+                    #    len(self.__micro_actions),
                     #    [(-1 * p, o) for p, o in zip(visited_new_preconditions, open_args) if p],
                     #   open_interval,
                     #    variables_spans,
                     #    list(zip(branches, [-1 * p for p in visited_new_preconditions])),
                     #    [-1 * b for b in branches],
                        # [-1 * p for p in visited_new_preconditions],
-                       ground_estimate,
-                       len(self.__micro_actions),
+                    #   ground_estimate,
                     #   open_args,
                     #   open_interval,
                       )
