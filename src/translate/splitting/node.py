@@ -154,15 +154,36 @@ class Node(AbstractNode):
 
     @classmethod
     def lowerbound_size(cls, micro_actions: Iterable[MicroAction]):
-        #NOTE: Static conditions are not considered/supported!
+        #NOTE: Static conditions are not considered/supported completely!
+        #      TODO: The current implementation is of supporting static
+        #            conditions are not exact! It needs to be revised!
+        #      
         #NOTE: Domain of arguments are assumbed to be have more
-        #      than two elements.
+        #      than one elements.
         accumulated_size = 0
-        micro_action = filter(lambda m: all(not m.args.issubset(n.args)
-                                            for n in micro_actions
-                                            if m != n),
-                              micro_actions)
+        dynamics = []
+        static_micro_action = MicroAction()
         for micro_action in micro_actions:
+            for precondition in micro_action.preconditions:
+                if precondition in cls.statics:
+                    static_micro_action.merge(micro_action)
+                    break
+            else:
+                dynamics.append(micro_action)
+        micro_actions = dynamics
+        if static_micro_action.preconditions:
+            micro_actions += [static_micro_action]
+        micro_actions.sort(lambda m: len(m.args), reverse=True)
+        filtered_micro_actions = []
+        for micro_action in micro_actions:
+            for micro_action2 in filtered_micro_actions:
+                if micro_action2.args.issuperset(micro_action.args):
+                    break
+            else:
+                filtered_micro_actions.append(micro_action)
+        for micro_action in filtered_micro_actions:
+            # args = micro_action.args - static_micro_action.args
+            # accumulated_size += cls.count_estimate(micro_action, args)
             accumulated_size += cls.count_estimate(micro_action)
         return accumulated_size
 
@@ -248,22 +269,15 @@ class Node(AbstractNode):
         last = self.__micro_actions[-1]
         current_size = self.__fixed_ground_size + self.count_estimate(last)
         max_size = max(current_size, self.size_threshold)
-        all_choices = self.__preconditions + self.__transitions
         nodes = []
         for choice in self.__find_choices():
             new_micro_action = last.copy()
             new_micro_action.merge(choice)
             estimate = self.count_estimate(new_micro_action)
-            if (    last.args
-                and (  self.__fixed_ground_size
-                     + estimate
-                     + self.lowerbound_size([c
-                                             for c in all_choices
-                                             if not last.args.issuperset(c.args)]))
-                     > max_size):
+            possible_child = self.__get_child(new_micro_action, estimate)
+            if last.args and possible_child.__get_lowerbound_size() > max_size:
                 continue
-            nodes.append(self.__get_child(new_micro_action,
-                                                estimate))
+            nodes.append(possible_child)
         if last.args:
             nodes.extend(Node(  self.__micro_actions
                               + [MicroAction()],
@@ -281,6 +295,12 @@ class Node(AbstractNode):
             # the remaining number of `other`s transitions.
             return False
         return other_cost[1:] <= self.cost[1:]
+
+    def __get_lowerbound_size(self):
+            estimate = self.count_estimate(self.__micro_actions[-1])
+            lowerbound = self.lowerbound_size(  self.__preconditions
+                                              + self.__transitions)
+            return self.__fixed_ground_size + estimate + lowerbound
 
     def __find_choices(self) -> List[MicroAction]:
         determined = set().union(*[m.args for m in self.__micro_actions])
@@ -483,8 +503,8 @@ class Node(AbstractNode):
                     #    open_interval,
                         len(decision_points),
                         int(math.log(ground_estimate, 2)),
-                    #     ground_estimate,
                        [-1 * p for p in visited_new_preconditions if p],
+                        ground_estimate,
                     #    len(self.__micro_actions),
                     #    [(-1 * p, o) for p, o in zip(visited_new_preconditions, open_args) if p],
                     #   open_interval,
@@ -571,6 +591,6 @@ class Node(AbstractNode):
 
         micro_actions = self.__micro_actions[:-1] + [new_micro_action]
         return Node(micro_actions,
-                            remaining_preconditions,
-                            remaining_transitions,
-                            self.__fixed_ground_size)
+                    remaining_preconditions,
+                    remaining_transitions,
+                    self.__fixed_ground_size)
