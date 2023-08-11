@@ -84,12 +84,12 @@ class Action:
                          for c in get_conditions(action.precondition)]
         transitions = self.__get_transitions(action.effects)
         transitions = self.__prepare_transitions(transitions)
-        # micro_actions = self.__order_micro_actions_areces(preconditions,
-        #                                                   transitions,
-        #                                                   size_threshold)
-        micro_actions = self.__order_micro_actions(preconditions,
-                                                   transitions,
-                                                   size_threshold)
+        micro_actions = self.__order_micro_actions_areces(preconditions,
+                                                          transitions,
+                                                          size_threshold)
+        # micro_actions = self.__order_micro_actions(preconditions,
+        #                                            transitions,
+        #                                            size_threshold)
         return micro_actions
 
     def __get_transitions(self, raw_effects):
@@ -203,7 +203,7 @@ class Action:
                                            preconditions=preconditions,
                                            ground_size_threshold=size_threshold)
         initial = ArecesNode(graph, 0)
-        best = beam_search(initial, 1)
+        best = beam_search(initial, 1, self.__random_walk_timeout)
         print(self.__name, "best node cost:", best.cost)
         return best.ordered_micro_actions()
 

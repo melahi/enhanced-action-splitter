@@ -1,7 +1,8 @@
 from typing import List, Dict, Set, Callable
 from itertools import combinations
+import math
 
-from splitting.abstract_node import AbstractNode
+from pddl import Atom
 
 from .abstract_node import AbstractNode
 from .graph import Graph
@@ -17,6 +18,8 @@ class ArecesNode(AbstractNode):
     memoized_estimate = {}
     statics: Set[Condition]
     ground_size_threshold: int
+    positive_args: Set[str]
+    preconditional_args: Set[str]
 
     @classmethod
     def prepare_class_variables(cls,
@@ -40,6 +43,10 @@ class ArecesNode(AbstractNode):
                        for s in p.preconditions
                        if knowledge.is_static(s.condition.predicate)}
         cls.ground_size_threshold = ground_size_threshold
+        cls.preconditional_args = set().union(*[p.args for p in preconditions])
+        cls.positive_args = set().union(*[p.args
+                                          for p in preconditions
+                                          if isinstance(p.preconditions[0].condition, Atom)])
         return cls
 
     @classmethod
@@ -68,6 +75,15 @@ class ArecesNode(AbstractNode):
         self.__overlap = overlap
         self.__cost = None
 
+        def priority(micro_action):
+            return [len([p
+                         for p in micro_action.preconditions
+                         if isinstance(p.condition, Atom)]),
+                    len([p
+                         for p in micro_action.preconditions
+                         if not isinstance(p.condition, Atom)])]
+        self.__order = self.__graph.topological_order(priority)
+
     def __hash__(self) -> int:
         return hash(self.__key)
 
@@ -86,6 +102,8 @@ class ArecesNode(AbstractNode):
     def neighbors(self) -> List['ArecesNode']:
         result = list()
         for v1, v2 in combinations(self.__graph.vertices, r=2):
+            if v1.args.isdisjoint(v2.args):
+                continue
             if self.__graph.is_merging_make_a_cycle(v1, v2):
                 continue
             new_graph, mapping = self.__graph.clone()
@@ -93,17 +111,39 @@ class ArecesNode(AbstractNode):
             mapping[v1].merge(mapping[v2])
             self.__add_statics(mapping[v1])
             overlap = len(v1.args & v2.args) / (1e-9 + len(v1.args | v2.args))  # Adding epsilon to prevent division by zero
-            result.append(ArecesNode(new_graph, overlap))
+            child = ArecesNode(new_graph, overlap)
+            if not child.__does_introduce_illegal_args():
+                result.append(child)
         return result
 
     def ordered_micro_actions(self):
-        return self.__graph.topological_order(lambda v: len(v.preconditions))
+        return self.__order
     
     def should_be_pruned(self, __o: 'ArecesNode') -> bool:
         return False
     
     def is_promising(self, previous_best: 'ArecesNode') -> bool:
         return self.cost[0] <= previous_best.cost[0]
+
+    def __does_introduce_illegal_args(self) -> bool:
+        determined_args = set()
+        for micro_action in self.ordered_micro_actions():
+            determined_args.update(*[p.find_args()
+                                     for p in micro_action.preconditions
+                                     if isinstance(p.condition, Atom)])
+            for precondition in micro_action.preconditions:
+                if isinstance(precondition.condition, Atom):
+                    continue
+                args = precondition.find_args()
+                if not determined_args.issuperset(args & self.positive_args):
+                    return True
+                determined_args.update(args)
+
+            for transition in micro_action.transitions:
+                if not determined_args.issuperset(  transition.find_args()
+                                                  & self.preconditional_args):
+                    return True
+        return False
 
     def __add_statics(self, micro_action: MicroAction):
         possible_improvement = True
@@ -131,21 +171,24 @@ class ArecesNode(AbstractNode):
         return (cost1, -self.__overlap)
 
     def __calculate_new_cost(self):
-        ground_size = sum(self.count_estimate(m) for m in self.__graph.vertices)
-        over_threshold = max(0, ground_size - self.ground_size_threshold)
-
-        ## Considering Introduced args
-        ## A chain of micro actions with a sequence of lower introducing args
-        ## is consider a better chain.
-        ordered = self.ordered_micro_actions()
-        introduced_args = []
-        args = set()
-        for micro_action in ordered:
-            new_args = micro_action.args - args
-            introduced_args.append(len(new_args))
-            args.update(new_args)
-
-        return (over_threshold,
-                len(self.__graph.vertices),
-                introduced_args,
+        chain = self.ordered_micro_actions()
+        ground_size = sum(self.count_estimate(m) for m in chain)
+        visited_new_preconditions = []
+        visited_preconditions = set()
+        branching_micro_actions = 0
+        determined_args = set()
+        for micro_action in chain:
+            visited_new_preconditions.append(0)
+            if not micro_action.args.issubset(determined_args):
+                branching_micro_actions += 1
+                determined_args |= micro_action.args
+            for precondition in micro_action.preconditions:
+                if precondition in visited_preconditions:
+                    continue
+                visited_preconditions.add(precondition)
+                visited_new_preconditions[-1] += 1
+        return (max(0, ground_size - self.ground_size_threshold),
+                branching_micro_actions,
+                int(math.log(ground_size, 2)),
+                [-1 * p for p in visited_new_preconditions],
                 ground_size)
