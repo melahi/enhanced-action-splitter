@@ -102,7 +102,7 @@ class ArecesNode(AbstractNode):
     def neighbors(self) -> List['ArecesNode']:
         result = list()
         for v1, v2 in combinations(self.__graph.vertices, r=2):
-            if v1.args.isdisjoint(v2.args):
+            if v1.args and v2.args and v1.args.isdisjoint(v2.args):
                 continue
             if self.__graph.is_merging_make_a_cycle(v1, v2):
                 continue
