@@ -1,3 +1,4 @@
+import gc
 from time import time
 from typing import List, Dict, Optional, TypeVar
 from random import randrange, random
@@ -5,8 +6,8 @@ from random import randrange, random
 from .abstract_node import AbstractNode
 
 
-EPSILON = 0.1  # The probability of choosing a random child, otherwise
-               # we select the best child (p(best child) = 1 - EPSILON).
+EPSILON = 0.001  # The probability of choosing a random child, otherwise
+                 # we select the best child (p(best child) = 1 - EPSILON).
 
 
 Node = TypeVar('Node', bound=AbstractNode)
@@ -58,4 +59,6 @@ def random_walk(starting_node: Node, timeout: float) -> Node:
             print(f"All search space is explored in iteration: {iteration}")
             break
 
+    del graph
+    gc.collect()
     return best

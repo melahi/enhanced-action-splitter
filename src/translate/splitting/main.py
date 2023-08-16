@@ -20,7 +20,7 @@ from .task_to_string import output
 from .plan_merger import main as plan_merger
 
 
-SIZE_THRESHOLD = 2_000_000
+SIZE_THRESHOLD = 1_000_000
 RANDOM_WALKS_TIMEOUT = 500
 
 
@@ -31,11 +31,11 @@ def split():
     with timers.timing("Splitting actions", block=True):
         print("size threshold:", SIZE_THRESHOLD / len(task.actions))
         print("random walks timeout:",
-              max(20.0, RANDOM_WALKS_TIMEOUT / len(task.actions)))
+              max(50.0, RANDOM_WALKS_TIMEOUT / len(task.actions)))
         actions = [Action(knowledge,
                           action,
                           SIZE_THRESHOLD / len(task.actions),
-                          max(20, RANDOM_WALKS_TIMEOUT / len(task.actions)))
+                          max(50, RANDOM_WALKS_TIMEOUT / len(task.actions)))
                    for action in task.actions]
     output(task, actions)
 

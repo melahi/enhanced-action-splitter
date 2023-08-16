@@ -320,12 +320,12 @@ class Node(AbstractNode):
             return True
 
         preconditions: List[MicroAction] = []
-        relevant_vars = ([determined, {a.name for a in self.action_args}]
-                          if not self.__micro_actions[-1].args
-                          else [self.__micro_actions[-1].args])
-        for transition in self.__transitions:
-            if not self.__micro_actions[-1].args.isdisjoint(transition.args):
-                relevant_vars[0] = relevant_vars[0] | transition.args
+        relevant_vars = [self.__micro_actions[-1].args,
+                         determined,
+                         {a.name for a in self.action_args}]
+        if not relevant_vars[0]:
+            del relevant_vars[0]
+
         for relevant in relevant_vars:
             for precondition in self.__preconditions:
                 condition = precondition.preconditions[0]
@@ -365,8 +365,9 @@ class Node(AbstractNode):
             #                      for v in first_visited_args
             #                      if v[1] == min_first]
 
-        if not self.__preconditions and len(relevant_vars) == 2:
-            del relevant_vars[0]
+        if preconditions:
+            return preconditions
+        relevant_vars = relevant_vars[-1:]
         transitions = [t
                        for t in self.__transitions
                        if (    are_relevant_vars(  t.args
@@ -379,7 +380,7 @@ class Node(AbstractNode):
                                                   .dependency_graph
                                                   .neighbors(t))))]
 
-        return preconditions + transitions
+        return transitions
 
     def __calculate_cost(self):
         ground_estimate = (  self.__fixed_ground_size
