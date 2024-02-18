@@ -19,7 +19,7 @@ from .task_to_string import output
 from .plan_merger import main as plan_merger
 
 
-def split(max_grounded_actions, max_search_time, domain, problem, split_domain, split_problem):
+def split(max_grounded_actions, max_search_time, max_time_per_action, domain, problem, split_domain, split_problem):
     print("Domain:", domain)
     print("Problem:", problem)
     task = pddl_parser.open(domain, problem)
@@ -29,7 +29,7 @@ def split(max_grounded_actions, max_search_time, domain, problem, split_domain, 
         actions = [Action(knowledge,
                           action,
                           max_grounded_actions / len(task.actions),
-                          max(50, max_search_time / len(task.actions)))
+                          max(max_time_per_action, max_search_time / len(task.actions)))
                    for action in task.actions]
     output(task, actions, split_domain, split_problem)
 
