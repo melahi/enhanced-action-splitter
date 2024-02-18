@@ -1,7 +1,8 @@
 #! /usr/bin/env pypy3
 
-import argparse
+import os
 import sys
+import argparse
 
 
 def get_args():
@@ -43,6 +44,7 @@ def get_args():
 if __name__ == "__main__":
     parameters = get_args()
     print("Parameters:", *parameters)
-    sys.path.append('src/')
+    src_dir = os.path.join(os.path.dirname(__file__), "src/")
+    sys.path.append(src_dir)
     from splitting import split
     split(*parameters)
